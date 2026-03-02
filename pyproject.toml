@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "guidellm-bench"
+version = "0.1.0"
+description = "guidellm-based benchmarking for Intel XPU vLLM inference"
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+
+# ---------------------------------------------------------------------------
+# Runtime dependencies
+# ---------------------------------------------------------------------------
+dependencies = [
+    # HuggingFace datasets — used to download AIME 2024 benchmark prompts
+    "datasets>=2.19.0",
+    # zoneinfo backport for Python < 3.9 (stdlib on 3.10+, but explicit is safe)
+    "tzdata>=2024.1",
+]
+
+[project.optional-dependencies]
+# Install the patched guidellm fork that fixes TTFT=0 for thinking models.
+# Upstream is broken for thinking models (delta.reasoning_content not detected).
+guidellm = [
+    "guidellm @ git+https://github.com/danielkorat/guidellm.git@fix/thinking-model-ttft",
+]
+
+[project.scripts]
+guidellm-bench = "bench:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+# ---------------------------------------------------------------------------
+# Tool config
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py310"

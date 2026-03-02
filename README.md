@@ -4,24 +4,74 @@ Automated benchmarking for **Intel XPU vLLM** inference using [guidellm](https:/
 
 ## Requirements
 
-- Running inside `intel/vllm:0.14.1-xpu` Docker container
-- Patched guidellm fork (fixes TTFT=0 for thinking models):
-  ```bash
-  pip install git+https://github.com/danielkorat/guidellm.git@fix/thinking-model-ttft
-  ```
+- Ubuntu 24.04 (noble) — runs **inside** `intel/vllm:0.14.1-xpu` Docker container
+- Python ≥ 3.10
+- Intel XPU hardware with the Intel GPU noble unified apt repo pre-configured in the container
+
+## Installation
+
+Run the install script from the repo root:
+
+```bash
+git clone https://github.com/danielkorat/guidellm-bench.git
+cd guidellm-bench
+bash install.sh
+```
+
+If `xpu-smi` is already installed, skip the system package step:
+
+```bash
+bash install.sh --skip-xpu-smi
+```
+
+The script installs three things in order:
+
+### 1. `xpu-smi` (system package)
+
+> **Note**: The Intel GPU noble unified repo must already be configured (it is pre-configured in `intel/vllm:0.14.1-xpu`).  
+> **Do NOT** add the `jammy` (Ubuntu 22.04) Intel graphics repo — it causes a `libmetee` package conflict.
+
+A two-step `libmetee4` pinning strategy is required to avoid an apt solver conflict between `libmetee4` (Intel GPU repo) and `libmetee5` (kobuk PPA) which declares `Breaks: libmetee4`:
+
+```bash
+# Step 1: pin libmetee4 to 4.x at solve time to avoid the Breaks constraint
+apt-get install -y xpu-smi=1.2.42-79~24.04 libmetee4=4.3.1-115~u24.04
+# Step 2: upgrade to 5.0.0 which provides libmetee.so.5.0.0 (required at runtime)
+apt-get install -y libmetee4=5.0.0-123~u24.04
+```
+
+### 2. Python dependencies
+
+Defined in `pyproject.toml`:
+
+| Package | Purpose |
+|---|---|
+| `datasets>=2.19.0` | Downloads AIME 2024 benchmark prompts from HuggingFace |
+| `tzdata>=2024.1` | zoneinfo timezone data (Israel time for output dirs) |
+| `guidellm` (patched fork) | Benchmark driver — fixes TTFT=0 bug on thinking models |
+
+```bash
+pip install -e ".[guidellm]"
+```
+
+The patched guidellm fork: `git+https://github.com/danielkorat/guidellm.git@fix/thinking-model-ttft`  
+Fixes `delta.reasoning_content` detection in `ChatCompletionsRequestHandler`.
+
+### 3. Verification
+
+The script imports `datasets`, `guidellm`, and `zoneinfo` to confirm everything resolved.
 
 ## Quick Start
 
 ```bash
-# Sanity check (single config, small dataset)
+# Sanity check (single config, 4 requests)
 ./bench.py --sanity
+# Logs → guidellm_sanity_results/YYYYMMDD_HHMM/bench.log
+# PID  → guidellm_sanity_results/YYYYMMDD_HHMM/bench.pid
 
-# Full benchmark suite
-./bench.py
-
-# Full suite in background
-nohup ./bench.py > bench_full.log 2>&1 & echo $! > bench_full.pid
-tail -f bench_full.log
+# Full benchmark suite in background
+nohup ./bench.py &
+# Logs → guidellm_results/YYYYMMDD_HHMM/bench.log  (self-logged; no redirect needed)
 
 # With Eagle3 speculative decoding (gpt-oss-120b, tp=8)
 ./bench.py --eagle3
@@ -40,21 +90,35 @@ tail -f bench_full.log
 
 Override any parameter via CLI: `--models`, `--tp`, `--quantization`, `--num-prompts`, `--max-model-len`, etc.
 
+## Repository Structure
+
+```
+guidellm-bench/
+├── bench.py                      # Entry point (thin — delegates to guidellm_bench/)
+├── install.sh                    # From-scratch install script
+├── pyproject.toml                # Project metadata and dependencies
+├── README.md
+├── guidellm_bench/               # Core package
+│   ├── config.py                 # Config dataclass, defaults, skip rules
+│   ├── server.py                 # vLLM server lifecycle
+│   ├── monitor.py                # GpuMonitor (xpu-smi background thread)
+│   ├── dataset.py                # AIME 2024 dataset preparation
+│   ├── benchmark.py              # guidellm benchmark runner
+│   └── dashboard.py              # Interactive HTML dashboard builder
+└── guidellm_results/             # Created at runtime
+    └── YYYYMMDD_HHMM/
+        ├── {cfg}_benchmarks.json
+        ├── {cfg}_benchmarks.html
+        ├── {cfg}_gpu_monitor.json
+        ├── dashboard.html
+        ├── serve_dashboard.sh
+        └── logs/
+```
+
 ## Outputs
 
 Each run creates a timestamped directory (Israel time, `YYYYMMDD_HHMM`):
 
-```
-guidellm_results/20260302_1022/
-├── {cfg}_benchmarks.json        # raw guidellm metrics
-├── {cfg}_benchmarks.html        # per-config guidellm report
-├── {cfg}_gpu_monitor.json       # xpu-smi GPU util/power/memory time-series
-├── dashboard.html               # combined interactive dashboard
-├── serve_dashboard.sh           # one-click local HTTP server
-└── logs/
-```
-
-Serve the dashboard:
 ```bash
 bash guidellm_results/YYYYMMDD_HHMM/serve_dashboard.sh
 ```
@@ -72,7 +136,7 @@ bash guidellm_results/YYYYMMDD_HHMM/serve_dashboard.sh
 If a run is interrupted, regenerate the dashboard from completed configs:
 
 ```python
-from bench import build_dashboard_html
+from guidellm_bench.dashboard import build_dashboard_html
 from pathlib import Path
 build_dashboard_html(Path("guidellm_results/YYYYMMDD_HHMM"), ["cfg1_name", "cfg2_name"])
 ```
@@ -88,6 +152,7 @@ build_dashboard_html(Path("guidellm_results/YYYYMMDD_HHMM"), ["cfg1_name", "cfg2
 
 ## Notes
 
-- Uses `HuggingFaceH4/aime_2024` (30 AIME math problems) as realistic prompts; falls back to synthetic tokens if the dataset is unavailable.
+- Uses `HuggingFaceH4/aime_2024` (30 AIME math problems) as realistic prompts; falls back to synthetic tokens if unavailable.
 - Benchmark quality controls: `--warmup 0.1 --cooldown 0.1 --max-errors 5 --max-seconds 600`
 - Thinking models use `--request-format /v1/completions` to bypass chat template (prevents TTFT=0).
+- Output directory timestamps use Israel time (`Asia/Jerusalem` via `zoneinfo`).

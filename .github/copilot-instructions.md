@@ -8,8 +8,19 @@ Single-script benchmarking tool (`bench.py`) that runs guidellm against vLLM ser
 
 ```
 /root/guidellm-bench/
-├── bench.py                      # Single entry-point — server lifecycle + guidellm runner + dashboard
+├── bench.py                      # Entry point (thin — delegates to guidellm_bench/)
+├── install.sh                    # From-scratch installation script (xpu-smi + Python deps)
+├── pyproject.toml                # Python project metadata and dependencies
+├── README.md
 ├── .github/copilot-instructions.md
+├── guidellm_bench/               # Core package
+│   ├── __init__.py               # Public API re-exports
+│   ├── config.py                 # Config dataclass, FULL/SANITY defaults, skip_reason()
+│   ├── server.py                 # vLLM server lifecycle: start, health-check, stop
+│   ├── monitor.py                # GpuMonitor background thread (xpu-smi)
+│   ├── dataset.py                # AIME 2024 dataset download and caching
+│   ├── benchmark.py              # run_guidellm() and copy_results()
+│   └── dashboard.py              # build_dashboard_html() and write_serve_script()
 ├── guidellm_results/             # Created at runtime (full runs)
 │   └── YYYYMMDD_HHMM/
 │       ├── {cfg_name}_benchmarks.json
@@ -33,6 +44,50 @@ Single-script benchmarking tool (`bench.py`) that runs guidellm against vLLM ser
 - **LLM server**: vLLM (Intel XPU backend, `intel/vllm:0.14.1-xpu` container)
 - **Hardware**: Intel XPU — `xpu-smi` for GPU monitoring
 - **Environment**: Runs **inside** the Docker container; no `docker exec` wrappers
+
+## Installation
+
+Run `install.sh` from the repo root inside `intel/vllm:0.14.1-xpu`:
+
+```bash
+bash install.sh
+# or, if xpu-smi already installed:
+bash install.sh --skip-xpu-smi
+```
+
+The script does **three things** in order:
+
+### 1. xpu-smi (system package — Ubuntu 24.04 noble)
+
+> **Do NOT** add `https://repositories.intel.com/graphics/ubuntu jammy client` —
+> wrong distro, triggers the `libmetee4 Breaks libmetee5` conflict.
+
+The Intel GPU noble unified repo is pre-configured in the container. The two-step
+pinning trick is required because apt's solver selects `libmetee4=5.0.0-123` and
+`libmetee5` (kobuk PPA) simultaneously, and `libmetee5` declares `Breaks: libmetee4`:
+
+```bash
+apt-get install -y xpu-smi=1.2.42-79~24.04 libmetee4=4.3.1-115~u24.04
+apt-get install -y libmetee4=5.0.0-123~u24.04   # upgrade: binary links libmetee.so.5.0.0
+```
+
+### 2. Python dependencies
+
+Defined in `pyproject.toml`:
+- `datasets>=2.19.0` — downloads AIME 2024 prompts via HuggingFace
+- `tzdata>=2024.1` — zoneinfo timezone data
+- `guidellm` (optional extra `[guidellm]`) — patched fork:
+  `git+https://github.com/danielkorat/guidellm.git@fix/thinking-model-ttft`
+
+```bash
+pip install -e ".[guidellm]"
+```
+
+### 3. Verification
+
+Script imports `datasets`, `guidellm`, and `zoneinfo` to confirm everything resolved.
+
+---
 
 ## Critical Rules & Corrections
 
@@ -123,6 +178,40 @@ out_dir = Path(results_dir) / ts
 ### 13. Script Executability
 **RULE**: `bench.py` must have `#!/usr/bin/env python3` shebang and be `chmod +x`.
 
+### 14. Always Update Documentation
+**RULE**: After ANY change that affects usage, installation, repo structure, or behaviour — update **both** `README.md` and `.github/copilot-instructions.md` in the same response.
+- New file added → add to repo structure in both docs
+- New CLI flag → add to `## Common Commands` / `## Quick Start`
+- New install step → update `## Installation` in both docs
+- Behaviour change → update relevant rules and notes
+
+Failing to update docs is a bug, not a minor omission.
+
+### 15. Module Structure (package layout)
+**RULE**: Business logic lives in `guidellm_bench/` package. `bench.py` is a thin entry point only.
+
+| Module | Responsibility |
+|---|---|
+| `config.py` | `Config` dataclass, `FULL`/`SANITY` defaults, `skip_reason()` |
+| `server.py` | vLLM server lifecycle: start, health-check, stop |
+| `monitor.py` | `GpuMonitor` background thread (xpu-smi) |
+| `dataset.py` | AIME 2024 dataset download and caching |
+| `benchmark.py` | `run_guidellm()` and `copy_results()` |
+| `dashboard.py` | `build_dashboard_html()` and `write_serve_script()` |
+
+Do **not** add new logic directly to `bench.py`.
+
+### 16. Self-Logging (bench.py writes its own log + pid)
+**RULE**: After creating `out_dir`, `bench.py` tees stdout/stderr into `out_dir/bench.log` and writes its PID to `out_dir/bench.pid`. No external redirect is needed.
+```bash
+# Correct:
+nohup ./bench.py &
+# Log and pid land in guidellm_results/YYYYMMDD_HHMM/
+
+# WRONG (old pattern):
+nohup ./bench.py > bench_full.log 2>&1 & echo $! > bench_full.pid
+```
+
 ## Default Configuration
 
 ### Models
@@ -150,15 +239,18 @@ out_dir = Path(results_dir) / ts
 | `tp` | `[4]` |
 | `num_prompts` | 4 |
 | `max_model_len` | 2048 |
+| `timeout_startup` | 600s |
 
 ## Common Commands
 
 ```bash
 # Quick sanity check
 ./bench.py --sanity
+# Logs → ./guidellm_sanity_results/YYYYMMDD_HHMM/bench.log
+# PID  → ./guidellm_sanity_results/YYYYMMDD_HHMM/bench.pid
 
-# Full benchmark suite (background)
-nohup ./bench.py > bench_full.log 2>&1 & echo $! > bench_full.pid
+# Full benchmark suite (background — self-logs; no redirect needed)
+nohup ./bench.py &
 
 # Specific model/config
 ./bench.py --models openai/gpt-oss-20b --tp 4 --quantization none
@@ -190,5 +282,22 @@ bash guidellm_results/YYYYMMDD_HHMM/serve_dashboard.sh
 
 ---
 
-**Last Updated**: March 2, 2026 — initial standalone repo from vllm-bench/guidellm-bench  
+**Last Updated**: March 2, 2026 — self-logging (bench.log/bench.pid in out_dir); SANITY timeout_startup 180→600  
 **Primary Maintainer**: Daniel Korat, Intel
+
+---
+
+## Lessons Learned
+
+Mistakes that happened once and must not repeat:
+
+| # | Mistake | Correct behaviour |
+|---|---|---|
+| 1 | Added `jammy` Intel graphics repo on noble (24.04) | Use only the pre-configured Intel GPU noble repo; never add jammy repos |
+| 2 | `apt install xpu-smi` without pinning → `libmetee4 Breaks libmetee5` conflict | Always use the two-step pin: first `libmetee4=4.3.1-115`, then upgrade to `5.0.0-123` |
+| 3 | Created/updated files without updating `README.md` | Every change must update README.md and copilot-instructions.md in the same response (Rule 14) |
+| 4 | Kept all 900 lines of logic in a single `bench.py` | Business logic belongs in `guidellm_bench/` package; `bench.py` is entry-point only (Rule 15) |
+| 5 | Tried to upgrade system pip inside container (`RECORD file not found`) | Skip `pip install --upgrade pip` inside the vLLM container; the bundled pip is sufficient |
+| 6 | `SANITY.timeout_startup=180` too short — vLLM XPU JIT on first load takes >3 min | Use `timeout_startup=600` for both FULL and SANITY |
+| 7 | Log and pid files saved in repo root via `nohup ./bench.py > bench.log` | `bench.py` self-logs into `out_dir/bench.log`; just run `nohup ./bench.py &` (Rule 16) |
+| 8 | vLLM server hangs after XPU kernel registration warnings (`OperatorEntry.cpp:208 Warning: Overriding a previously registered kernel`) and never reaches `/health` | The XPU driver/runtime state is corrupted — **reboot the host**: `ssh root@10.75.137.163` then `reboot`. No amount of `pkill` or restart will fix this without a reboot. |
