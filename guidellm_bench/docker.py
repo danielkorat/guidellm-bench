@@ -16,6 +16,13 @@ import subprocess
 CONTAINER_NAME = "vllm-0.14"
 DOCKER_IMAGE = "intel/vllm:0.14.1-xpu"
 
+# Expert Parallelism (EP) runs use the llm-scaler container (supports --enable-expert-parallel).
+# Start it with: docker run -td --privileged --net=host --device=/dev/dri \
+#   --name=lsv-container -v /root/dkorat/:/root/ --shm-size=32g \
+#   --entrypoint /bin/bash intel/llm-scaler-vllm:0.14.0-b8
+EP_CONTAINER_NAME = "lsv-container"
+EP_DOCKER_IMAGE   = "intel/llm-scaler-vllm:0.14.0-b8"
+
 # Volume mount: host /root/dkorat/ → container /root/
 HOST_ROOT = "/root/dkorat"
 CONTAINER_ROOT = "/root"

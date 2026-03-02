@@ -44,12 +44,13 @@ Benchmarking tool (`bench.py` entry point + `guidellm_bench/` package) that runs
   The patch fixes `delta.reasoning`/`delta.reasoning_content` detection in `ChatCompletionsRequestHandler.add_streaming_line()`.
 - **LLM server**: vLLM (Intel XPU backend, `intel/vllm:0.14.1-xpu` container)
 - **Hardware**: Intel XPU — `xpu-smi` for GPU monitoring
-- **Environment**: `bench.py` and `guidellm_bench/` run **inside** the `intel/vllm:0.14.1-xpu`
-  container. When invoked from the host, `bench.py` detects it is outside a container
-  (`/.dockerenv` absent) and automatically re-execs itself via `docker exec vllm-0.14`. All
-  subprocess calls (vLLM, guidellm, pkill) are made directly — no docker exec wrapping needed.
-  The only exception is `xpu-smi` GPU monitoring, which silently fails inside the container
-  (GpuMonitor degrades gracefully to empty readings).
+- **Environment**: `bench.py` and `guidellm_bench/` run **inside** a Docker container. When
+  invoked from the host, `bench.py` detects it is outside a container (`/.dockerenv` absent) and
+  automatically re-execs itself via `docker exec` into the appropriate container:
+  - **Default** (no `--ep`): `vllm-0.14` (`intel/vllm:0.14.1-xpu`)
+  - **With `--ep`**: `lsv-container` (`intel/llm-scaler-vllm:0.14.0-b8`) — required for Expert Parallelism
+
+  All subprocess calls (vLLM, guidellm, pkill) are made directly inside the container — no docker exec wrapping needed. The only exception is `xpu-smi` GPU monitoring, which silently fails inside the container (GpuMonitor degrades gracefully to empty readings).
 - **Volume mount**: Host `/root/dkorat/` → Container `/root/` — result files land on both
 
 ## Installation
@@ -104,15 +105,19 @@ Script imports `datasets`, `guidellm`, and `zoneinfo` inside the container to co
 ## Critical Rules & Corrections
 
 ### 0. Execution Model — bench.py runs INSIDE the container
-**RULE**: `bench.py` and `guidellm_bench/` run inside `intel/vllm:0.14.1-xpu`. All subprocess
-calls (vLLM, guidellm, pkill, curl) are made **directly** — no `docker exec` wrapping.
+**RULE**: `bench.py` and `guidellm_bench/` run inside a Docker container. The re-exec guard selects the container based on `--ep` presence in `sys.argv`:
+- **Default**: `vllm-0.14` (`intel/vllm:0.14.1-xpu`)
+- **`--ep`**: `lsv-container` (`intel/llm-scaler-vllm:0.14.0-b8`)
+
+All subprocess calls (vLLM, guidellm, pkill, curl) are made **directly** — no `docker exec` wrapping.
 
 ```python
 # bench.py re-exec guard (top of file, stdlib only):
 if not os.path.exists("/.dockerenv"):
     _tty = ["-t"] if sys.stdout.isatty() else []
+    _container = "lsv-container" if "--ep" in sys.argv else "vllm-0.14"
     sys.exit(subprocess.call(["docker", "exec", "-w", "/root/guidellm-bench"] + _tty + [
-        "vllm-0.14", "python3", "/root/guidellm-bench/bench.py"
+        _container, "python3", "/root/guidellm-bench/bench.py"
     ] + sys.argv[1:]))
 ```
 

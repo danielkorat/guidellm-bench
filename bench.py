@@ -3,16 +3,16 @@
 guidellm-bench — entry point.
 
 Usage:
-    ./bench.py               # full benchmark matrix
+    ./bench.py               # full benchmark matrix  (intel/vllm:0.14.1-xpu)
     ./bench.py --sanity      # single config, fast smoke-test
+    ./bench.py --ep          # Expert Parallelism variants (intel/llm-scaler-vllm:0.14.0-b8)
     ./bench.py --models openai/gpt-oss-20b --tp 4 --quantization none
 
+When called from the host this script auto-relaunches itself inside the
+appropriate container via 'docker exec':
+  - default runs: vllm-0.14  (intel/vllm:0.14.1-xpu)
+  - --ep runs:    lsv-container (intel/llm-scaler-vllm:0.14.0-b8)
 See guidellm_bench/ for implementation details.
-
-Note: this script is designed to run *inside* the intel/vllm:0.14.1-xpu
-container. When invoked from the host it automatically re-execs itself inside
-the container via 'docker exec'. The only exception is xpu-smi GPU monitoring,
-which only works on the host and silently degrades inside the container.
 """
 
 # ---------------------------------------------------------------------------
@@ -25,8 +25,10 @@ import sys
 
 if not os.path.exists("/.dockerenv"):
     _tty = ["-t"] if sys.stdout.isatty() else []
+    # --ep requires intel/llm-scaler-vllm:0.14.0-b8 (EP not in intel/vllm:0.14.1-xpu)
+    _container = "lsv-container" if "--ep" in sys.argv else "vllm-0.14"
     _cmd = ["docker", "exec", "-w", "/root/guidellm-bench"] + _tty + [
-        "vllm-0.14", "python3", "/root/guidellm-bench/bench.py",
+        _container, "python3", "/root/guidellm-bench/bench.py",
     ] + sys.argv[1:]
     sys.exit(subprocess.call(_cmd))
 
