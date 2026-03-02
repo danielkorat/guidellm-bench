@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Single-script benchmarking tool (`bench.py`) that runs guidellm against vLLM servers on Intel XPU hardware, across a matrix of models × tensor-parallelism × quantization × eager-mode configurations. Produces per-config JSON results, a combined interactive HTML dashboard, and GPU utilisation data.
+Benchmarking tool (`bench.py` entry point + `guidellm_bench/` package) that runs guidellm against vLLM servers on Intel XPU hardware, across a matrix of models × tensor-parallelism × quantization × eager-mode configurations. Produces per-config JSON results, a combined interactive HTML dashboard, and GPU utilisation data.
 
 ## Repository Structure
 
@@ -16,7 +16,7 @@ Single-script benchmarking tool (`bench.py`) that runs guidellm against vLLM ser
 ├── guidellm_bench/               # Core package
 │   ├── __init__.py               # Public API re-exports
 │   ├── config.py                 # Config dataclass, FULL/SANITY defaults, skip_reason()
-│   ├── docker.py                 # CONTAINER_NAME, docker_exec_cmd(), ensure_container_running()
+│   ├── docker.py                 # CONTAINER_NAME, _PREAMBLE, ensure_container_running()
 │   ├── server.py                 # vLLM server lifecycle: start, health-check, stop
 │   ├── monitor.py                # GpuMonitor background thread (xpu-smi)
 │   ├── dataset.py                # AIME 2024 dataset download and caching
@@ -35,7 +35,7 @@ Single-script benchmarking tool (`bench.py`) that runs guidellm against vLLM ser
 
 ## Technology Stack
 
-- **Language**: Python 3, single file (`bench.py`)
+- **Language**: Python 3 package (`bench.py` thin entry point + `guidellm_bench/` core package)
 - **Benchmark driver**: guidellm — use the patched fork (upstream is broken for thinking models; TTFT=0):
   ```bash
   pip install git+https://github.com/danielkorat/guidellm.git@fix/thinking-model-ttft
@@ -315,10 +315,11 @@ bash guidellm_results/YYYYMMDD_HHMM/serve_dashboard.sh
 | xpu-smi unavailable | Tool not on PATH inside container | GpuMonitor silently returns `[]`; dashboard shows fallback |
 | Dashboard shows 0 for all metrics | `b['metrics']` aggregates are zero-filled in guidellm v0.6 | Extract medians from `b['requests']['successful']` per-request fields |
 | Models generate only 16 output tokens | `output_tokens` column not mapped to `max_tokens`; vLLM default is 16 | Use column name `output_tokens_count` (guidellm default, auto-detected) |
+| Dashboard shows only previous run's config | `lsof` not available inside container — prior `http.server` held port 8081; new server failed to bind silently | `_serve_dashboard` now uses `fuser -k {port}/tcp` (available in container) with `lsof` as host fallback |
 
 ---
 
-**Last Updated**: March 2, 2026 — bench.py and guidellm_bench/ moved to run inside the container; re-exec guard auto-relaunches from host; all deps installed in container only; xpu-smi silently skipped (not available in container)  
+**Last Updated**: March 2, 2026 — bench.py and guidellm_bench/ run inside container; re-exec guard auto-relaunches from host; all deps installed in container only; xpu-smi silently skipped; `_serve_dashboard` uses `fuser` to kill prior port holder (lsof unavailable in container)  
 **Primary Maintainer**: Daniel Korat, Intel
 
 ---
