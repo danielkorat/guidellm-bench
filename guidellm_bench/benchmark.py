@@ -69,7 +69,7 @@ def run_guidellm(
             "--warmup 0.1",      # exclude first ~10% of requests (XPU JIT spike)
             "--cooldown 0.1",    # exclude last  ~10% of requests (tail effects)
             "--max-errors 5",    # abort early on repeated failures
-            "--max-seconds 600", # hard wall-clock limit per benchmark
+            "--max-seconds 900", # hard wall-clock limit per benchmark (Qwen3-30B needs ~18s/req × 30)
         ]
     else:
         profile_args = [

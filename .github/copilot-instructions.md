@@ -160,7 +160,7 @@ guidellm benchmark \
   --warmup 0.1       # exclude first 10% requests (covers XPU JIT spike on req 1)
   --cooldown 0.1     # exclude last 10%
   --max-errors 5     # abort on repeated failures
-  --max-seconds 600  # hard wall-clock limit per benchmark
+  --max-seconds 900  # hard wall-clock limit per benchmark (Qwen3-30B needs ~540s for 30 reqs)
   --num-requests 20  # → 2 warmup + 2 cooldown = 16 clean samples
 ```
 
