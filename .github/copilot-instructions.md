@@ -143,9 +143,13 @@ guidellm benchmark \
 
 ### 8. AIME Dataset for Realistic Prompts
 **RULE**: Use `HuggingFaceH4/aime_2024` dataset (30 math problems) instead of synthetic random tokens.
-- Loaded once at startup via `prepare_aime_dataset()`, cached to `/tmp/aime_2024.jsonl`.
-- Each JSONL row: `{"prompt": "<problem>", "output_tokens": 1024}`.
-- Passed via: `--data /tmp/aime_2024.jsonl --data-column-mapper '{"text_column": "prompt", "output_tokens_count_column": "output_tokens"}' --data-samples -1 --max-requests 30`
+- Loaded once at startup via `prepare_aime_dataset()`, cached to `/tmp/aime_2024_v2.jsonl`.
+- Each JSONL row: `{"prompt": "<problem>", "output_tokens_count": 1024}`.
+  - Column name MUST be `output_tokens_count` (guidellm default) — this maps to `max_tokens` in
+    the `/v1/completions` request body. Using `output_tokens` instead results in `max_tokens` being
+    absent and models generating only 16 tokens (vLLM default).
+- No `--data-column-mapper` needed — `prompt` and `output_tokens_count` are auto-detected defaults.
+- Passed via: `--data /tmp/aime_2024_v2.jsonl --data-samples -1 --max-requests 30`
 - Falls back to synthetic tokens silently if the download fails (no internet).
 
 ### 9. GPU Monitoring via xpu-smi
@@ -279,10 +283,12 @@ bash guidellm_results/YYYYMMDD_HHMM/serve_dashboard.sh
 | OOM on gpt-oss-20b + eager=false | XPU memory exhausted by graph compilation buffers | Skip (Rule 5) |
 | Qwen3-30B + fp8 mismatch | mxfp4 in model config vs fp8 override | Skip (Rule 5) |
 | xpu-smi unavailable | Tool not on PATH inside container | GpuMonitor silently returns `[]`; dashboard shows fallback |
+| Dashboard shows 0 for all metrics | `b['metrics']` aggregates are zero-filled in guidellm v0.6 | Extract medians from `b['requests']['successful']` per-request fields |
+| Models generate only 16 output tokens | `output_tokens` column not mapped to `max_tokens`; vLLM default is 16 | Use column name `output_tokens_count` (guidellm default, auto-detected) |
 
 ---
 
-**Last Updated**: March 2, 2026 — self-logging (bench.log/bench.pid in out_dir); SANITY timeout_startup 180→600  
+**Last Updated**: March 2, 2026 — AIME column renamed output_tokens→output_tokens_count (fixes max_tokens=16 bug); dashboard metric extraction fixed (reads per-request, not zero-filled b['metrics'])  
 **Primary Maintainer**: Daniel Korat, Intel
 
 ---
@@ -301,3 +307,5 @@ Mistakes that happened once and must not repeat:
 | 6 | `SANITY.timeout_startup=180` too short — vLLM XPU JIT on first load takes >3 min | Use `timeout_startup=600` for both FULL and SANITY |
 | 7 | Log and pid files saved in repo root via `nohup ./bench.py > bench.log` | `bench.py` self-logs into `out_dir/bench.log`; just run `nohup ./bench.py &` (Rule 16) |
 | 8 | vLLM server hangs after XPU kernel registration warnings (`OperatorEntry.cpp:208 Warning: Overriding a previously registered kernel`) and never reaches `/health` | The XPU driver/runtime state is corrupted — **reboot the host**: `ssh root@10.75.137.163` then `reboot`. No amount of `pkill` or restart will fix this without a reboot. |
+| 9 | Named AIME JSONL column `output_tokens` — models generated only 16 tokens | Column must be `output_tokens_count` (guidellm default); `output_tokens` is not mapped to `max_tokens` in the completions body, leaving vLLM's default of 16. Cache path is `/tmp/aime_2024_v2.jsonl`. |
+| 10 | Dashboard showed 0 for TTFT/ITL/req/s/tok/s | `b['metrics']` aggregates are zero-filled in guidellm v0.6; must compute medians from `b['requests']['successful'][*]` per-request fields in `_extract_sweep_points`. |

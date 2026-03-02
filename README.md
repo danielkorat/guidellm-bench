@@ -153,6 +153,9 @@ build_dashboard_html(Path("guidellm_results/YYYYMMDD_HHMM"), ["cfg1_name", "cfg2
 ## Notes
 
 - Uses `HuggingFaceH4/aime_2024` (30 AIME math problems) as realistic prompts; falls back to synthetic tokens if unavailable.
+  - JSONL column is `output_tokens_count` (guidellm default) so it auto-maps to `max_tokens` in the completions request. Using `output_tokens` instead causes models to generate only 16 tokens (vLLM default when `max_tokens` is absent).
+  - Cache path: `/tmp/aime_2024_v2.jsonl`
 - Benchmark quality controls: `--warmup 0.1 --cooldown 0.1 --max-errors 5 --max-seconds 600`
 - Thinking models use `--request-format /v1/completions` to bypass chat template (prevents TTFT=0).
+- Dashboard metrics are computed from `b['requests']['successful']` per-request fields; `b['metrics']` aggregates are zero-filled in guidellm v0.6 and must not be used.
 - Output directory timestamps use Israel time (`Asia/Jerusalem` via `zoneinfo`).

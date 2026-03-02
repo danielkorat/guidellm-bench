@@ -45,7 +45,8 @@ def run_guidellm(
     if dataset_path:
         data_args = [
             f"--data {dataset_path}",
-            '--data-column-mapper \'{"text_column": "prompt", "output_tokens_count_column": "output_tokens"}\'',
+            # 'prompt' and 'output_tokens_count' are guidellm defaults — no mapper needed.
+            # output_tokens_count maps to max_tokens in the completions request.
             "--data-samples -1",
         ]
         effective_requests = 30  # all AIME problems

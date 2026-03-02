@@ -1,8 +1,79 @@
 """Combined interactive HTML dashboard builder."""
 
 import json
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+
+FIXED_TITLE = "Benchmark Dashboard \u2014 Intel Arc Pro B60 (multi-gpu)"
+
+
+def _run_timestamp(out_dir: Path) -> str:
+    """Parse YYYYMMDD_HHMM from out_dir name into a human-readable string."""
+    m = re.match(r"(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})", out_dir.name)
+    if not m:
+        return out_dir.name
+    year, month, day, hour, minute = m.groups()
+    dt = datetime(int(year), int(month), int(day), int(hour), int(minute))
+    return dt.strftime("%-d %b %Y %H:%M")
+
+
+def _build_subtitle(records: list[dict]) -> str:
+    """Build an experiment-config subtitle from the first benchmark JSON record."""
+    if not records:
+        return ""
+
+    try:
+        json_path = records[0].get("_json_path")
+        with open(json_path) as f:
+            data = json.load(f)
+        args = data.get("args", {})
+        b    = data["benchmarks"][0]
+
+        # Dataset name
+        raw_data = args.get("data", [])
+        raw_data = raw_data[0] if isinstance(raw_data, list) and raw_data else str(raw_data)
+        if "aime_2024" in raw_data:
+            dataset = "AIME 2024"
+        elif "synthetic" in raw_data.lower() or "prompt_tokens" in raw_data:
+            dataset = "synthetic"
+        else:
+            dataset = Path(raw_data).stem
+
+        # Number of requests
+        n_req = (
+            b["config"]["constraints"]
+            .get("max_requests", {})
+            .get("max_num") or
+            b["scheduler_state"].get("processed_requests")
+        )
+
+        # Median input / output tokens across all requests
+        reqs = b["requests"]["successful"]
+        in_toks  = sorted(r["prompt_tokens"]  for r in reqs if r.get("prompt_tokens"))
+        out_toks = sorted(r["output_tokens"]   for r in reqs if r.get("output_tokens"))
+        med_in   = in_toks[len(in_toks) // 2]   if in_toks  else None
+        med_out  = out_toks[len(out_toks) // 2] if out_toks else None
+
+        # Benchmark profile
+        profile   = args.get("profile", b["config"]["strategy"].get("type_", ""))
+        req_fmt   = args.get("request_format", "/v1/completions")
+
+        parts = [f"Dataset: {dataset}"]
+        if n_req is not None:
+            parts.append(f"{n_req} requests")
+        if med_in is not None:
+            parts.append(f"~{med_in} input tokens")
+        if med_out is not None:
+            parts.append(f"~{med_out} output tokens")
+        parts.append(f"profile: {profile}")
+        parts.append(f"format: {req_fmt}")
+
+        return " &nbsp;|&nbsp; ".join(parts)
+    except Exception:
+        return ""
 
 
 COLORS = [
@@ -58,40 +129,58 @@ def _scalar(v) -> Optional[float]:
     return None
 
 
+def _median(vals: list) -> Optional[float]:
+    """Return the median of a non-empty list of numbers, or None."""
+    nums = sorted(v for v in vals if v is not None)
+    if not nums:
+        return None
+    n = len(nums)
+    mid = n // 2
+    return (nums[mid - 1] + nums[mid]) / 2.0 if n % 2 == 0 else float(nums[mid])
+
+
 def _extract_sweep_points(data: dict) -> list[dict]:
     """Return per-benchmark metric rows from a guidellm JSON report.
 
-    guidellm JSON schema (v0.6):
-      data['benchmarks'][i]['config']['strategy']['streams']  -> concurrency
-      data['benchmarks'][i]['metrics']['<metric>']['successful']['median']
+    guidellm's top-level b['metrics'] aggregates are zero-filled in v0.6;
+    real data lives in b['requests']['successful'][*] per-request fields.
 
     Each row: {concurrency, ttft_ms, itl_ms, latency_s, throughput_rps, throughput_tps}
     """
     benchmarks = data.get("benchmarks", []) if isinstance(data, dict) else data
     rows = []
-    for i, b in enumerate(benchmarks):
+    for b in benchmarks:
         strategy = b.get("config", {}).get("strategy", {})
         conc = (
             strategy.get("streams")
             or strategy.get("max_concurrency")
             or strategy.get("worker_count")
-            or i + 1
+            or 1
         )
 
-        def med(metric_key: str) -> Optional[float]:
-            v = b.get("metrics", {}).get(metric_key, {})
-            if isinstance(v, dict):
-                s = v.get("successful")
-                return _scalar(s.get("median") if isinstance(s, dict) else s)
-            return _scalar(v)
+        reqs = b.get("requests", {}).get("successful", [])
+
+        def _req_med(field: str) -> Optional[float]:
+            return _median([r.get(field) for r in reqs])
+
+        med_lat = _req_med("request_latency")
+        # For synchronous (serial) runs use 1/median_latency for req/s;
+        # for concurrent runs use n / wall_duration.
+        sm = b.get("scheduler_metrics", {})
+        wall_dur = sm.get("measure_end_time", 0) - sm.get("measure_start_time", 0)
+        n_succ = len(reqs)
+        if conc == 1 and med_lat:
+            rps = 1.0 / med_lat
+        else:
+            rps = n_succ / wall_dur if wall_dur else None
 
         rows.append({
             "concurrency":    float(conc),
-            "ttft_ms":        med("time_to_first_token_ms"),
-            "itl_ms":         med("inter_token_latency_ms"),
-            "latency_s":      med("request_latency"),
-            "throughput_rps": med("requests_per_second"),
-            "throughput_tps": med("output_tokens_per_second"),
+            "ttft_ms":        _req_med("time_to_first_token_ms"),
+            "itl_ms":         _req_med("inter_token_latency_ms"),
+            "latency_s":      med_lat,
+            "throughput_rps": rps,
+            "throughput_tps": _req_med("output_tokens_per_second"),
         })
     return rows
 
@@ -122,7 +211,8 @@ def build_dashboard_html(
             continue
         with open(json_path) as f:
             data = json.load(f)
-        records.append({"name": name, "points": _extract_sweep_points(data)})
+        records.append({"name": name, "points": _extract_sweep_points(data),
+                        "_json_path": str(json_path)})
 
     if not records:
         print("  No benchmark results found for dashboard", flush=True)
@@ -326,13 +416,21 @@ def build_dashboard_html(
   </div>
 </div>"""
 
-    title = f"guidellm Benchmark Dashboard \u2014 {out_dir.name}"
+    ts       = _run_timestamp(out_dir)
+    subtitle = _build_subtitle(records)
+    subtitle_html = (
+        f'<p class="text-center text-muted mb-1" style="font-size:.82rem">'
+        f'{ts}'
+        + (f' &nbsp;|&nbsp; {subtitle}' if subtitle else '')
+        + '</p>'
+    )
+
     page = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>{title}</title>
+  <title>{FIXED_TITLE}</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
@@ -344,7 +442,8 @@ def build_dashboard_html(
 </head>
 <body>
 <div class="container-fluid py-3">
-  <h4 class="mb-3 text-center fw-bold">{title}</h4>
+  <h4 class="mb-1 text-center fw-bold">{FIXED_TITLE}</h4>
+  {subtitle_html}
   <ul class="nav nav-tabs flex-wrap mb-0" id="mainTabs">
     {tab_nav_html}
     {config_tabs_nav}
