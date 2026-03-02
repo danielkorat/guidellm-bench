@@ -2,33 +2,53 @@
 
 Automated benchmarking for **Intel XPU vLLM** inference using [guidellm](https://github.com/vllm-project/guidellm). Runs a matrix of model × tensor-parallelism × quantization configurations and produces an interactive HTML dashboard with latency, throughput, and GPU memory metrics.
 
+**All commands run from the host machine.** The tool automatically launches or reuses the `intel/vllm:0.14.1-xpu` Docker container and dispatches every vLLM / guidellm / xpu-smi invocation inside it via `docker exec`.
+
 ## Requirements
 
-- Ubuntu 24.04 (noble) — runs **inside** `intel/vllm:0.14.1-xpu` Docker container
-- Python ≥ 3.10
-- Intel XPU hardware with the Intel GPU noble unified apt repo pre-configured in the container
+- Host machine running Ubuntu 24.04 (noble) with Docker CLI available
+- Python ≥ 3.10 on the **host** (only for `bench.py` orchestration)
+- `intel/vllm:0.14.1-xpu` Docker image pulled (contains vLLM, guidellm will be installed, xpu-smi optional)
+- Intel XPU hardware with the Intel GPU noble unified apt repo pre-configured **inside** the container
+- Volume mount `/root/dkorat/` → `/root/` — `bench.py` writes result files here so they are visible on both host and container
 
 ## Installation
 
-Run the install script from the repo root:
+Run the install script from the **host machine** (the container is started automatically):
 
 ```bash
-git clone https://github.com/danielkorat/guidellm-bench.git
-cd guidellm-bench
+git clone https://github.com/danielkorat/guidellm-bench.git /root/dkorat/guidellm-bench
+cd /root/dkorat/guidellm-bench
 bash install.sh
 ```
 
-If `xpu-smi` is already installed, skip the system package step:
+If `xpu-smi` is already installed inside the container, skip the system package step:
 
 ```bash
 bash install.sh --skip-xpu-smi
 ```
 
-The script installs three things in order:
+The script does four things in order:
 
-### 1. `xpu-smi` (system package)
+### 0. Ensure container is running
 
-> **Note**: The Intel GPU noble unified repo must already be configured (it is pre-configured in `intel/vllm:0.14.1-xpu`).  
+The script inspects the `vllm-0.14` container. If it does not exist it runs:
+
+```bash
+docker run -t -d --shm-size 10g --net=host --ipc=host --privileged \
+  -e http_proxy=... -e https_proxy=... \
+  -e HF_TOKEN=${HF_READ_TOKEN} \
+  --name=vllm-0.14 \
+  --device /dev/dri:/dev/dri \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  -v /dev/dri/by-path:/dev/dri/by-path \
+  -v /root/dkorat/:/root \
+  --entrypoint= intel/vllm:0.14.1-xpu /bin/bash
+```
+
+### 1. `xpu-smi` (system package — installed inside container)
+
+> **Note**: The Intel GPU noble unified repo must already be configured — it is pre-configured in `intel/vllm:0.14.1-xpu`.  
 > **Do NOT** add the `jammy` (Ubuntu 22.04) Intel graphics repo — it causes a `libmetee` package conflict.
 
 A two-step `libmetee4` pinning strategy is required to avoid an apt solver conflict between `libmetee4` (Intel GPU repo) and `libmetee5` (kobuk PPA) which declares `Breaks: libmetee4`:
@@ -40,7 +60,7 @@ apt-get install -y xpu-smi=1.2.42-79~24.04 libmetee4=4.3.1-115~u24.04
 apt-get install -y libmetee4=5.0.0-123~u24.04
 ```
 
-### 2. Python dependencies
+### 2. Python dependencies (installed inside container)
 
 Defined in `pyproject.toml`:
 
@@ -51,20 +71,21 @@ Defined in `pyproject.toml`:
 | `guidellm` (patched fork) | Benchmark driver — fixes TTFT=0 bug on thinking models |
 
 ```bash
-pip install -e ".[guidellm]"
+# (run from host) install inside container:
+docker exec vllm-0.14 pip install -e "/root/guidellm-bench[guidellm]"
 ```
 
 The patched guidellm fork: `git+https://github.com/danielkorat/guidellm.git@fix/thinking-model-ttft`  
 Fixes `delta.reasoning_content` detection in `ChatCompletionsRequestHandler`.
 
-### 3. Verification
+### 3. Verification (runs inside container)
 
-The script imports `datasets`, `guidellm`, and `zoneinfo` to confirm everything resolved.
+The script imports `datasets`, `guidellm`, and `zoneinfo` inside the container to confirm everything resolved.
 
 ## Quick Start
 
 ```bash
-# Sanity check (single config, 4 requests)
+# Sanity check (single config, 4 requests) — run from host machine
 ./bench.py --sanity
 # Logs → guidellm_sanity_results/YYYYMMDD_HHMM/bench.log
 # PID  → guidellm_sanity_results/YYYYMMDD_HHMM/bench.pid
@@ -95,11 +116,12 @@ Override any parameter via CLI: `--models`, `--tp`, `--quantization`, `--num-pro
 ```
 guidellm-bench/
 ├── bench.py                      # Entry point (thin — delegates to guidellm_bench/)
-├── install.sh                    # From-scratch install script
+├── install.sh                    # Host-side install script (starts container + installs deps)
 ├── pyproject.toml                # Project metadata and dependencies
 ├── README.md
 ├── guidellm_bench/               # Core package
 │   ├── config.py                 # Config dataclass, defaults, skip rules
+│   ├── docker.py                 # Container lifecycle: ensure_container_running, docker_exec_cmd
 │   ├── server.py                 # vLLM server lifecycle
 │   ├── monitor.py                # GpuMonitor (xpu-smi background thread)
 │   ├── dataset.py                # AIME 2024 dataset preparation
@@ -128,7 +150,7 @@ bash guidellm_results/YYYYMMDD_HHMM/serve_dashboard.sh
 - **TTFT** (Time to First Token, ms)
 - **ITL** (Inter-Token Latency, ms)
 - **Throughput** (req/s and tok/s)
-- **Peak GPU Memory Used** (MiB, all devices)
+- **Peak GPU Memory Used** (MiB, all devices) — `xpu-smi` is invoked on the **host machine** directly (not inside the container; it does not work there)
 - Per-config GPU utilisation and memory time-series charts
 
 ## Rebuild Dashboard from Partial Results
@@ -154,7 +176,7 @@ build_dashboard_html(Path("guidellm_results/YYYYMMDD_HHMM"), ["cfg1_name", "cfg2
 
 - Uses `HuggingFaceH4/aime_2024` (30 AIME math problems) as realistic prompts; falls back to synthetic tokens if unavailable.
   - JSONL column is `output_tokens_count` (guidellm default) so it auto-maps to `max_tokens` in the completions request. Using `output_tokens` instead causes models to generate only 16 tokens (vLLM default when `max_tokens` is absent).
-  - Cache path: `/tmp/aime_2024_v2.jsonl`
+  - Cache path: `/root/dkorat/aime_2024_v2.jsonl` (host) = `/root/aime_2024_v2.jsonl` (container)
 - Benchmark quality controls: `--warmup 0.1 --cooldown 0.1 --max-errors 5 --max-seconds 600`
 - Thinking models use `--request-format /v1/completions` to bypass chat template (prevents TTFT=0).
 - Dashboard metrics are computed from `b['requests']['successful']` per-request fields; `b['metrics']` aggregates are zero-filled in guidellm v0.6 and must not be used.

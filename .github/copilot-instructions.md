@@ -7,15 +7,16 @@ Single-script benchmarking tool (`bench.py`) that runs guidellm against vLLM ser
 ## Repository Structure
 
 ```
-/root/guidellm-bench/
+/root/dkorat/guidellm-bench/
 ├── bench.py                      # Entry point (thin — delegates to guidellm_bench/)
-├── install.sh                    # From-scratch installation script (xpu-smi + Python deps)
+├── install.sh                    # Host-side install: starts container + installs deps inside it
 ├── pyproject.toml                # Python project metadata and dependencies
 ├── README.md
 ├── .github/copilot-instructions.md
 ├── guidellm_bench/               # Core package
 │   ├── __init__.py               # Public API re-exports
 │   ├── config.py                 # Config dataclass, FULL/SANITY defaults, skip_reason()
+│   ├── docker.py                 # CONTAINER_NAME, docker_exec_cmd(), ensure_container_running()
 │   ├── server.py                 # vLLM server lifecycle: start, health-check, stop
 │   ├── monitor.py                # GpuMonitor background thread (xpu-smi)
 │   ├── dataset.py                # AIME 2024 dataset download and caching
@@ -43,21 +44,29 @@ Single-script benchmarking tool (`bench.py`) that runs guidellm against vLLM ser
   The patch fixes `delta.reasoning`/`delta.reasoning_content` detection in `ChatCompletionsRequestHandler.add_streaming_line()`.
 - **LLM server**: vLLM (Intel XPU backend, `intel/vllm:0.14.1-xpu` container)
 - **Hardware**: Intel XPU — `xpu-smi` for GPU monitoring
-- **Environment**: Runs **inside** the Docker container; no `docker exec` wrappers
+- **Environment**: Runs from the **host machine**; all vLLM / guidellm / xpu-smi subprocess calls
+  are dispatched into `vllm-0.14` via `docker_exec_cmd()` from `guidellm_bench/docker.py`.
+  The container is started automatically by `ensure_container_running()` at the top of `main()`.
+- **Volume mount**: Host `/root/dkorat/` → Container `/root/` — result files land on both
 
 ## Installation
 
-Run `install.sh` from the repo root inside `intel/vllm:0.14.1-xpu`:
+Run `install.sh` from the **host machine** (container is created/started automatically):
 
 ```bash
 bash install.sh
-# or, if xpu-smi already installed:
+# or, if xpu-smi already installed inside the container:
 bash install.sh --skip-xpu-smi
 ```
 
-The script does **three things** in order:
+The script does **four things** in order:
 
-### 1. xpu-smi (system package — Ubuntu 24.04 noble)
+### 0. Ensure container running
+
+Inspects `vllm-0.14`. If missing, runs `docker run` with the standard args from `reference.sh`
+(volume `/root/dkorat/:/root`, `--net=host`, `--privileged`, etc.).
+
+### 1. xpu-smi (system package — inside container, Ubuntu 24.04 noble)
 
 > **Do NOT** add `https://repositories.intel.com/graphics/ubuntu jammy client` —
 > wrong distro, triggers the `libmetee4 Breaks libmetee5` conflict.
@@ -91,6 +100,19 @@ Script imports `datasets`, `guidellm`, and `zoneinfo` to confirm everything reso
 
 ## Critical Rules & Corrections
 
+### 0. Host-machine Operation — ALL subprocesses use docker_exec_cmd()
+**RULE**: The project runs on the **host machine**. Every subprocess call that targets vLLM,
+guidellm, xpu-smi, or other container-resident tools MUST be wrapped with `docker_exec_cmd()`
+from `guidellm_bench/docker.py`. Never call these tools directly as bare commands.
+```python
+from guidellm_bench.docker import docker_exec_cmd
+# CORRECT:
+subprocess.Popen(docker_exec_cmd("vllm serve ..."), ...)
+# WRONG:
+subprocess.Popen(["bash", "--login", "/tmp/vllm_server.sh"], ...)
+```
+`ensure_container_running()` is called once at the start of `main()` to start/create the container.
+
 ### 1. Quantization Flag
 **RULE**: Never use `--quantization off` or `--quantization none`. Omit the flag entirely.
 ```python
@@ -99,11 +121,9 @@ if cfg.quant:
 ```
 
 ### 2. oneAPI Environment
-**RULE**: Write a `/tmp/*.sh` script that sources `setvars.sh`, then run with `bash --login /tmp/script.sh`.
-```python
-_write_script("/tmp/vllm_server.sh", "source /opt/intel/oneapi/setvars.sh --force", ...)
-subprocess.Popen(["bash", "--login", "/tmp/vllm_server.sh"], ...)
-```
+**RULE**: The oneAPI preamble (`source /opt/intel/oneapi/setvars.sh --force`) is baked into
+`docker_exec_cmd()` automatically via `_PREAMBLE` in `docker.py`. Do NOT write `/tmp/*.sh` scripts
+and run them with `bash --login`. Use `docker_exec_cmd(inner_cmd)` directly.
 
 ### 3. Proxy / no_proxy
 **RULE**: Always export `no_proxy` and `NO_PROXY` inside the shell scripts to bypass Intel proxy for localhost connections.
@@ -155,13 +175,7 @@ guidellm benchmark \
 - Falls back to synthetic tokens silently if the download fails (no internet).
 
 ### 9. GPU Monitoring via xpu-smi
-**RULE**: `GpuMonitor` background thread polls every 10 seconds using:
-```bash
-xpu-smi dump -d -1 -m 0,1,18 -i 1 -n 1
-```
-- `-d -1` = all devices, `-m 0,1,18` = GPU util (%), Power (W), Memory Used (MiB)
-- Readings written to `{cfg_name}_gpu_monitor.json` alongside benchmark results.
-- Dashboard shows peak GPU memory bar chart + per-device time-series (with graceful fallback if xpu-smi unavailable).
+**RULE**: `GpuMonitor` runs `xpu-smi` **on the host machine** directly (plain `subprocess.run`, no `docker_exec_cmd`). xpu-smi does not work inside the container.
 
 ### 10. Health Check
 **RULE**: Use `curl -f` and check only `returncode == 0`. The `/health` endpoint returns HTTP 200 with an empty body — do NOT check stdout content.
@@ -199,6 +213,7 @@ Failing to update docs is a bug, not a minor omission.
 | Module | Responsibility |
 |---|---|
 | `config.py` | `Config` dataclass, `FULL`/`SANITY` defaults, `skip_reason()` |
+| `docker.py` | `CONTAINER_NAME`, `docker_exec_cmd()`, `ensure_container_running()`, path helpers |
 | `server.py` | vLLM server lifecycle: start, health-check, stop |
 | `monitor.py` | `GpuMonitor` background thread (xpu-smi) |
 | `dataset.py` | AIME 2024 dataset download and caching |
@@ -290,7 +305,7 @@ bash guidellm_results/YYYYMMDD_HHMM/serve_dashboard.sh
 
 ---
 
-**Last Updated**: March 2, 2026 — AIME column renamed output_tokens→output_tokens_count (fixes max_tokens=16 bug); dashboard metric extraction fixed (reads per-request, not zero-filled b['metrics'])  
+**Last Updated**: March 2, 2026 — xpu-smi runs on host directly (not via docker exec); migrated to host-machine operation with docker_exec_cmd()  
 **Primary Maintainer**: Daniel Korat, Intel
 
 ---
@@ -309,5 +324,7 @@ Mistakes that happened once and must not repeat:
 | 6 | `SANITY.timeout_startup=180` too short — vLLM XPU JIT on first load takes >3 min | Use `timeout_startup=600` for both FULL and SANITY |
 | 7 | Log and pid files saved in repo root via `nohup ./bench.py > bench.log` | `bench.py` self-logs into `out_dir/bench.log`; just run `nohup ./bench.py &` (Rule 16) |
 | 8 | vLLM server hangs after XPU kernel registration warnings (`OperatorEntry.cpp:208 Warning: Overriding a previously registered kernel`) and never reaches `/health` | The XPU driver/runtime state is corrupted — **reboot the host**: `ssh root@10.75.137.163` then `reboot`. No amount of `pkill` or restart will fix this without a reboot. |
-| 9 | Named AIME JSONL column `output_tokens` — models generated only 16 tokens | Column must be `output_tokens_count` (guidellm default); `output_tokens` is not mapped to `max_tokens` in the completions body, leaving vLLM's default of 16. Cache path is `/tmp/aime_2024_v2.jsonl`. |
+| 9 | Named AIME JSONL column `output_tokens` — models generated only 16 tokens | Column must be `output_tokens_count` (guidellm default); `output_tokens` is not mapped to `max_tokens` in the completions body, leaving vLLM's default of 16. Cache path is `/root/dkorat/aime_2024_v2.jsonl` (host) = `/root/aime_2024_v2.jsonl` (container). |
 | 10 | Dashboard showed 0 for TTFT/ITL/req/s/tok/s | `b['metrics']` aggregates are zero-filled in guidellm v0.6; must compute medians from `b['requests']['successful'][*]` per-request fields in `_extract_sweep_points`. |
+| 11 | Wrote subprocess calls that ran tools directly on the host (e.g. `pkill -f 'vllm serve'`) | All tool invocations (vLLM, guidellm, pkill) MUST use `docker_exec_cmd()` — the tools live inside the container, not on the host. **Exception: `xpu-smi` runs on the host directly** (does not work inside the container). |
+| 12 | Wrapped `xpu-smi` in `docker_exec_cmd()` | `xpu-smi` must run on the host as a plain subprocess — `subprocess.run(["xpu-smi", ...])`. |

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-# install.sh — full from-scratch setup for guidellm-bench on Ubuntu 24.04 (noble)
-#              inside the Intel XPU vLLM container (intel/vllm:0.14.1-xpu)
+# install.sh — full from-scratch setup for guidellm-bench
+#              Runs from the HOST machine; all container steps execute via
+#              'docker exec' into intel/vllm:0.14.1-xpu (container: vllm-0.14).
 #
 # Usage:
-#   bash install.sh          # install everything
+#   bash install.sh          # install everything (starts container if needed)
 #   bash install.sh --skip-xpu-smi   # skip system package step (already done)
 # =============================================================================
 set -euo pipefail
@@ -22,71 +23,107 @@ info()  { echo -e "${G}[install]${NC} $*"; }
 warn()  { echo -e "${Y}[warn]${NC}   $*"; }
 die()   { echo -e "${R}[error]${NC}  $*" >&2; exit 1; }
 
+CONTAINER=vllm-0.14
+IMAGE=intel/vllm:0.14.1-xpu
+HOST_ROOT=/root/dkorat
+
 # =============================================================================
-# 1. xpu-smi (system package)
+# 0. Ensure the container is running
+# =============================================================================
+info "Checking container '${CONTAINER}'..."
+
+running=$(docker inspect --format '{{.State.Running}}' "${CONTAINER}" 2>/dev/null || echo "missing")
+
+if [[ "$running" == "true" ]]; then
+  info "Container already running ✓"
+elif [[ "$running" == "false" ]]; then
+  info "Starting stopped container..."
+  docker start "${CONTAINER}"
+else
+  info "Container not found — creating from ${IMAGE}..."
+  HF_TOKEN="${HF_READ_TOKEN:-}"
+  docker run -t -d --shm-size 10g --net=host --ipc=host --privileged \
+    -e http_proxy=http://proxy-dmz.intel.com:912 \
+    -e https_proxy=http://proxy-dmz.intel.com:912 \
+    -e HTTP_PROXY=http://proxy-dmz.intel.com:912 \
+    -e HTTPS_PROXY=http://proxy-dmz.intel.com:912 \
+    -e no_proxy=localhost,127.0.0.1,0.0.0.0 \
+    -e NO_PROXY=localhost,127.0.0.1,0.0.0.0 \
+    -e "HF_TOKEN=${HF_TOKEN}" \
+    --name="${CONTAINER}" \
+    --device /dev/dri:/dev/dri \
+    -v ~/.cache/huggingface:/root/.cache/huggingface \
+    -v /dev/dri/by-path:/dev/dri/by-path \
+    -v "${HOST_ROOT}/:/root" \
+    --entrypoint= \
+    "${IMAGE}" /bin/bash
+  info "Container '${CONTAINER}' launched ✓"
+fi
+
+# Helper: run a bash command inside the container (with oneAPI + proxy env).
+cexec() {
+  docker exec "${CONTAINER}" bash --login -c \
+    "source /opt/intel/oneapi/setvars.sh --force && \
+     export no_proxy=localhost,127.0.0.1,0.0.0.0 && \
+     export NO_PROXY=localhost,127.0.0.1,0.0.0.0 && \
+     $*"
+}
+
+# =============================================================================
+# 1. xpu-smi (system package — inside container)
 # =============================================================================
 if [[ "$SKIP_XPU_SMI" == "false" ]]; then
-  info "Installing xpu-smi …"
+  info "Installing xpu-smi inside container..."
 
-  # Sanity: we need the Intel GPU noble unified repo already configured.
-  # It ships inside intel/vllm:0.14.1-xpu by default.
-  if ! apt-cache show xpu-smi &>/dev/null; then
-    die "Intel GPU noble repo not found. Expected it pre-configured in the container."
-  fi
-
+  # Sanity: the Intel GPU noble unified repo must be pre-configured in the container.
   # Do NOT add the jammy repo — wrong distro, causes libmetee4/5 conflict.
-  # Do NOT run plain 'apt install xpu-smi': apt picks libmetee4=5.0.0 candidate
-  # AND libmetee5=5.0 from kobuk PPA simultaneously — "Breaks" conflict.
-  #
-  # Fix: pin libmetee4 to a 4.x version at solve time, then upgrade it to 5.0.0
-  # (the .so the binary actually links against) in a second pass.
+  docker exec "${CONTAINER}" bash -c \
+    'apt-cache show xpu-smi &>/dev/null || { echo "[error] Intel GPU noble repo not found."; exit 1; }'
 
-  apt-get update -qq
-  apt-get install -y \
-    xpu-smi=1.2.42-79~24.04 \
-    libmetee4=4.3.1-115~u24.04
+  docker exec "${CONTAINER}" bash -c 'apt-get update -qq'
 
-  # Now upgrade libmetee4 to 5.0.0 — xpu-smi links against libmetee.so.5.0.0
-  apt-get install -y libmetee4=5.0.0-123~u24.04
+  # Two-step libmetee4 pinning: pin to 4.x at solve time to avoid the Breaks
+  # constraint from libmetee5, then upgrade to 5.0.0 which provides the .so the
+  # binary actually links against.
+  docker exec "${CONTAINER}" bash -c \
+    'apt-get install -y xpu-smi=1.2.42-79~24.04 libmetee4=4.3.1-115~u24.04'
+  docker exec "${CONTAINER}" bash -c \
+    'apt-get install -y libmetee4=5.0.0-123~u24.04'
 
-  if ! command -v xpu-smi &>/dev/null; then
-    die "xpu-smi install failed (binary not on PATH)"
-  fi
-  info "xpu-smi $(dpkg-query -W -f='${Version}' xpu-smi) installed ✓"
+  docker exec "${CONTAINER}" bash -c 'command -v xpu-smi' \
+    || die "xpu-smi install failed (binary not on PATH)"
+  info "xpu-smi installed ✓"
 else
   info "Skipping xpu-smi (--skip-xpu-smi passed)"
 fi
 
 # =============================================================================
-# 2. Python — check version
+# 2. Python — check version inside container
 # =============================================================================
-PY=$(command -v python3 || true)
-[[ -z "$PY" ]] && die "python3 not found"
+info "Checking Python version inside container..."
+PY_VER=$(docker exec "${CONTAINER}" python3 -c \
+  'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+info "Python ${PY_VER} ✓"
 
-PY_VER=$("$PY" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-info "Using Python $PY_VER at $PY"
-
-# zoneinfo is stdlib from 3.9; datasets requires >= 3.8; guidellm requires >= 3.10
-if python3 -c 'import sys; exit(0 if sys.version_info >= (3,10) else 1)'; then
-  : # ok
-else
-  die "Python >= 3.10 required (found $PY_VER)"
-fi
+docker exec "${CONTAINER}" python3 -c \
+  'import sys; exit(0 if sys.version_info >= (3,10) else 1)' \
+  || die "Python >= 3.10 required inside container (found ${PY_VER})"
 
 # =============================================================================
-# 3. Core Python dependencies (from pyproject.toml)
+# 3. Python dependencies — installed inside container from the volume-mounted repo
 # =============================================================================
-info "Installing Python dependencies …"
-cd "$SCRIPT_DIR"
-# In the vLLM container pip is installed by debian (no RECORD file); upgrading
-# it with pip itself fails. Skip the self-upgrade — the bundled pip is fine.
-pip install --quiet -e ".[guidellm]"
+info "Installing Python dependencies inside container..."
+# The volume mount makes /root/dkorat/ → /root/ inside the container.
+# In the vLLM container pip is installed by debian (no RECORD file); skip
+# self-upgrade — the bundled pip is fine.
+docker exec "${CONTAINER}" bash -c \
+  'pip install --quiet -e "/root/guidellm-bench[guidellm]"'
 
 # =============================================================================
-# 4. Verify
+# 4. Verify imports inside container
 # =============================================================================
-info "Verifying imports …"
-python3 - <<'EOF'
+info "Verifying imports inside container..."
+docker exec "${CONTAINER}" python3 - <<'EOF'
 import importlib, sys
 
 checks = [
@@ -109,7 +146,8 @@ EOF
 
 info "All checks passed ✓"
 echo ""
-echo "  Quick-start:"
+echo "  Quick-start (run from host machine):"
 echo "    ./bench.py --sanity       # fast smoke test (single config, 4 requests)"
 echo "    ./bench.py                # full suite"
 echo ""
+

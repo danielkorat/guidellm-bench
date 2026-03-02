@@ -50,8 +50,9 @@ class GpuMonitor:
 
     def _poll(self) -> None:
         try:
+            # xpu-smi runs on the host machine directly (not inside the container).
             r = subprocess.run(
-                ["bash", "-c", "xpu-smi dump -d -1 -m 0,1,18 -i 1 -n 1 2>/dev/null"],
+                ["xpu-smi", "dump", "-d", "-1", "-m", "0,1,18", "-i", "1", "-n", "1"],
                 capture_output=True, text=True, timeout=8,
             )
             elapsed = round(time.time() - self._t0, 1)

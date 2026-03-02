@@ -7,7 +7,9 @@ from typing import Optional
 
 # v2: column renamed output_tokens → output_tokens_count so guidellm auto-detects
 # and maps it to max_tokens in the completions request body.
-_CACHE_PATH = Path("/tmp/aime_2024_v2.jsonl")
+# Written to the volume-mounted host path so it is visible inside the container
+# at /root/aime_2024_v2.jsonl (volume: /root/dkorat/ → /root/).
+_CACHE_PATH = Path("/root/dkorat/aime_2024_v2.jsonl")
 
 
 def prepare_aime_dataset(output_tokens: int = 1024) -> Optional[str]:

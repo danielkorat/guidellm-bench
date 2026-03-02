@@ -1,6 +1,5 @@
 """vLLM server lifecycle: start, health-check, stop."""
 
-import os
 import subprocess
 import threading
 import time
@@ -8,22 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from .config import Config, PORT
-
-
-# ---------------------------------------------------------------------------
-# Shell script helpers
-# ---------------------------------------------------------------------------
-
-def _write_script(path: str, *lines: str) -> None:
-    """Write a bash script that sources oneAPI env then runs *lines*."""
-    with open(path, "w") as f:
-        f.write("#!/bin/bash\n")
-        f.write("source /opt/intel/oneapi/setvars.sh --force\n")
-        f.write("export no_proxy=localhost,127.0.0.1,0.0.0.0\n")
-        f.write("export NO_PROXY=localhost,127.0.0.1,0.0.0.0\n")
-        for line in lines:
-            f.write(line + "\n")
-    os.chmod(path, 0o755)
+from .docker import CONTAINER_NAME, docker_exec_cmd
 
 
 def _run_tee(cmd: list[str], log_path: Path) -> subprocess.Popen:
@@ -73,9 +57,8 @@ def build_vllm_cmd(cfg: Config, max_model_len: int) -> str:
 
 
 def start_server(cfg: Config, max_model_len: int, log_path: Path) -> subprocess.Popen:
-    """Write a launch script and start the vLLM server process."""
-    _write_script("/tmp/vllm_server.sh", build_vllm_cmd(cfg, max_model_len))
-    return _run_tee(["bash", "--login", "/tmp/vllm_server.sh"], log_path)
+    """Start the vLLM server inside the Docker container."""
+    return _run_tee(docker_exec_cmd(build_vllm_cmd(cfg, max_model_len)), log_path)
 
 
 def wait_for_server(timeout: int) -> bool:
@@ -84,7 +67,7 @@ def wait_for_server(timeout: int) -> bool:
     time.sleep(10)
 
     r = subprocess.run(
-        ["bash", "-c", "pgrep -f 'vllm serve' | head -1"],
+        docker_exec_cmd("pgrep -f 'vllm serve' | head -1"),
         capture_output=True, text=True,
     )
     if r.returncode != 0 or not r.stdout.strip():
@@ -120,5 +103,5 @@ def stop_server(proc: Optional[subprocess.Popen] = None) -> None:
         except Exception:
             pass
     for pat in ("'vllm serve'", "'vllm bench'", "guidellm"):
-        subprocess.run(["bash", "-c", f"pkill -f {pat}"], capture_output=True)
+        subprocess.run(docker_exec_cmd(f"pkill -f {pat}"), capture_output=True)
     time.sleep(5)

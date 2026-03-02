@@ -26,6 +26,7 @@ from guidellm_bench import (
     Config,
     GpuMonitor,
     build_dashboard_html,
+    ensure_container_running,
     prepare_aime_dataset,
     run_guidellm,
     skip_reason,
@@ -84,6 +85,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_arg_parser().parse_args()
     D = SANITY if args.sanity else FULL
+
+    # Ensure the Docker container is running before any other operation.
+    ensure_container_running()
 
     def get(attr: str, key: str):
         v = getattr(args, attr.replace("-", "_"), None)
