@@ -79,6 +79,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--eagle3", action="store_true",
         help="Append gpt-oss-120b Eagle3 speculative-decoding config (opt-in only)",
     )
+    p.add_argument(
+        "--resume", metavar="DIR", nargs="?", const="",
+        help="Resume an interrupted run. With a DIR argument, reuses that directory. "
+             "Without a DIR argument, automatically resumes the latest run in the "
+             "results directory. Skips any config whose _benchmarks.json already exists.",
+    )
     return p
 
 
@@ -105,25 +111,56 @@ def main() -> None:
     results_dir      = get("results_dir", "results_dir")
     timeout_startup  = get("timeout_startup", "timeout_startup")
 
-    # Timestamped output directory (Israel time)
-    ts      = datetime.now(ZoneInfo("Asia/Jerusalem")).strftime("%Y%m%d_%H%M")
-    out_dir = Path(results_dir) / ts
+    # Output directory: existing (--resume) or a fresh timestamped one
+    if args.resume is not None:
+        if args.resume == "":
+            # Bare --resume: find the latest subdirectory in results_dir
+            base = Path(results_dir)
+            candidates = sorted(
+                (d for d in base.iterdir() if d.is_dir()),
+                key=lambda d: d.name,
+            )
+            if not candidates:
+                sys.exit(f"--resume: no run directories found in {base}")
+            out_dir = candidates[-1].resolve()
+            print(f"Auto-resuming latest run: {out_dir}", file=sys.__stdout__)
+        else:
+            out_dir = Path(args.resume).resolve()
+        if not out_dir.is_dir():
+            sys.exit(f"--resume: directory not found: {out_dir}")
+        _log_mode = "a"   # append to existing bench.log
+    else:
+        ts      = datetime.now(ZoneInfo("Asia/Jerusalem")).strftime("%Y%m%d_%H%M")
+        out_dir = Path(results_dir) / ts
+        _log_mode = "w"
+
     log_dir = out_dir / "logs"
     out_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(exist_ok=True)
 
     # Self-log: tee all output into out_dir/bench.log; write pid for easy kill.
-    _log_file = open(out_dir / "bench.log", "w", buffering=1)
+    _log_file = open(out_dir / "bench.log", _log_mode, buffering=1)
     sys.stdout = _Tee(sys.__stdout__, _log_file)  # type: ignore[assignment]
     sys.stderr = _Tee(sys.__stderr__, _log_file)  # type: ignore[assignment]
     (out_dir / "bench.pid").write_text(str(os.getpid()))
 
-    print(f"Results → {out_dir}\n")
+    if args.resume is not None:
+        print(f"\n{'='*60}")
+        print(f"RESUMING  {out_dir}")
+        print(f"{'='*60}\n")
+    else:
+        print(f"Results → {out_dir}\n")
 
     # Prepare AIME dataset once (cached; None → synthetic fallback)
     aime_path = prepare_aime_dataset(output_tokens=1024)
 
+    # When resuming, seed gpu_data from any existing monitor files
     gpu_data: dict[str, list] = {}
+    if args.resume is not None:
+        for p in out_dir.glob("*_gpu_monitor.json"):
+            cfg_name = p.stem.replace("_gpu_monitor", "")
+            with open(p) as f:
+                gpu_data[cfg_name] = json.load(f)
 
     # Build config list, applying skip rules
     configs: list[Config] = []
@@ -131,7 +168,7 @@ def main() -> None:
         for tp in tp_values:
             for quant in quant_list:
                 for eager in eager_list:
-                    reason = skip_reason(model, quant, eager)
+                    reason = skip_reason(model, quant, eager, tp)
                     if reason:
                         print(f"  SKIP  {model}  tp={tp}  quant={quant or 'none'}  eager={eager}: {reason}")
                         continue
@@ -157,6 +194,14 @@ def main() -> None:
         print(f"\n{'='*60}")
         print(f"[{i}/{len(configs)}]  {cfg.name}")
         print(f"{'='*60}")
+
+        # Checkpointing: skip configs that already have results
+        checkpoint = out_dir / f"{cfg.name}_benchmarks.json"
+        if args.resume is not None and checkpoint.exists():
+            print(f"  ✓  already done (checkpoint found) — skipping")
+            succeeded.append(cfg.name)
+            continue
+
         t0 = time.time()
 
         stop_server()  # clean up any lingering processes
