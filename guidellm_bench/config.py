@@ -75,12 +75,14 @@ class Config:
 # Skip rules
 # ---------------------------------------------------------------------------
 
-def skip_reason(model: str, quant: Optional[str], eager: bool) -> Optional[str]:
+def skip_reason(model: str, quant: Optional[str], eager: bool, tp: int = 4) -> Optional[str]:
     """Return a human-readable reason to skip this combination, or None to proceed."""
     if quant == "fp8" and not eager:
         return "fp8 + eager=false (known engine failure)"
     if "gpt-oss-20b" in model and quant == "fp8":
         return "gpt-oss-20b + fp8 (mxfp4 config mismatch)"
+    if "gpt-oss-20b" in model and tp < 4:
+        return "gpt-oss-20b + tp<4 (UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY — model too large for 2 GPUs)"
     if "gpt-oss-20b" in model and not eager:
         return "gpt-oss-20b + eager=false (OOM: UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY)"
     if "Qwen3-30B" in model and quant is None:

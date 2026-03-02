@@ -123,6 +123,7 @@ export NO_PROXY=localhost,127.0.0.1,0.0.0.0
 |---|---|
 | fp8 + eager=false | Engine initialization failure |
 | gpt-oss-20b + fp8 | Model has mxfp4 baked in; fp8 override rejected |
+| gpt-oss-20b + tp<4 | `UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY` on XPU — model too large for 2 GPUs |
 | gpt-oss-20b + eager=false | `UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY` on XPU |
 | Qwen3-30B + quant=none | IPEX/XPU mode-stack bug (unquantized BF16 fails) |
 | Qwen3-4B + quant=none | fp8 is uniformly faster (lower TTFT/ITL/lat, higher TPS — verified 20260302); skip unquantized |
@@ -191,8 +192,6 @@ out_dir = Path(results_dir) / ts
 - New install step → update `## Installation` in both docs
 - Behaviour change → update relevant rules and notes
 
-Failing to update docs is a bug, not a minor omission.
-
 ### 15. Module Structure (package layout)
 **RULE**: Business logic lives in `guidellm_bench/` package. `bench.py` is a thin entry point only.
 
@@ -258,6 +257,11 @@ nohup ./bench.py > bench_full.log 2>&1 & echo $! > bench_full.pid
 # Full benchmark suite (background — self-logs; no redirect needed)
 nohup ./bench.py &
 
+# Resume an interrupted run (skips configs with existing _benchmarks.json)
+./bench.py --resume guidellm_results/YYYYMMDD_HHMM
+# Or: resume the latest run automatically
+./bench.py --resume
+
 # Specific model/config
 ./bench.py --models openai/gpt-oss-20b --tp 4 --quantization none
 
@@ -311,3 +315,4 @@ Mistakes that happened once and must not repeat:
 | 8 | vLLM server hangs after XPU kernel registration warnings (`OperatorEntry.cpp:208 Warning: Overriding a previously registered kernel`) and never reaches `/health` | The XPU driver/runtime state is corrupted — **reboot the host**: `ssh root@10.75.137.163` then `reboot`. No amount of `pkill` or restart will fix this without a reboot. |
 | 9 | Named AIME JSONL column `output_tokens` — models generated only 16 tokens | Column must be `output_tokens_count` (guidellm default); `output_tokens` is not mapped to `max_tokens` in the completions body, leaving vLLM's default of 16. Cache path is `/tmp/aime_2024_v2.jsonl`. |
 | 10 | Dashboard showed 0 for TTFT/ITL/req/s/tok/s | `b['metrics']` aggregates are zero-filled in guidellm v0.6; must compute medians from `b['requests']['successful'][*]` per-request fields in `_extract_sweep_points`. |
+| 11 | gpt-oss-20b + tp=2 crashed with OOM (UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY), guidellm reported 30 "successful" requests with empty output | Added `gpt-oss-20b + tp<4` skip rule — model requires at least 4 GPUs |

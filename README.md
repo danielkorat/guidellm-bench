@@ -73,6 +73,11 @@ The script imports `datasets`, `guidellm`, and `zoneinfo` to confirm everything 
 nohup ./bench.py &
 # Logs → guidellm_results/YYYYMMDD_HHMM/bench.log  (self-logged; no redirect needed)
 
+# Resume an interrupted run (skips configs with existing _benchmarks.json)
+./bench.py --resume guidellm_results/YYYYMMDD_HHMM
+# Or: resume the latest run automatically
+./bench.py --resume
+
 # With Eagle3 speculative decoding (gpt-oss-120b, tp=8)
 ./bench.py --eagle3
 ```
