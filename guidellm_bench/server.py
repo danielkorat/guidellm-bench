@@ -110,6 +110,6 @@ def stop_server(proc: Optional[subprocess.Popen] = None) -> None:
             proc.wait(timeout=10)
         except Exception:
             pass
-    for pat in ("vllm serve", "vllm bench", "guidellm"):
+    for pat in ("vllm serve", "vllm bench", "guidellm benchmark"):
         subprocess.run(["pkill", "-f", pat], capture_output=True)
     time.sleep(5)
