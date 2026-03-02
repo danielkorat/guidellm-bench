@@ -197,24 +197,36 @@ if not args.sanity and args.eagle3:
                           speculative_config=EAGLE3_SPECULATIVE_CONFIG))
 ```
 
-### 12. Timestamped Output Directories (Israel Time)
+### 12. Expert Parallelism (EP) — Opt-in Only
+**RULE**: EP variants for MoE models are **not** in the default matrix. Append only when `--ep` CLI flag is passed.
+```python
+# Appended via --ep:
+Config(model="openai/gpt-oss-20b",  tp=4, quant=None,  eager=True, expert_parallel_size=4)
+Config(model="Qwen/Qwen3-30B-A3B", tp=2, quant="fp8", eager=True, expert_parallel_size=2)
+Config(model="Qwen/Qwen3-30B-A3B", tp=4, quant="fp8", eager=True, expert_parallel_size=4)
+```
+⚠️ **Requires `intel/llm-scaler-vllm:0.14.0-b8` or later** (EP not present in `intel/vllm:0.14.1-xpu`).
+The vLLM flags emitted are: `--enable-expert-parallel --expert-parallel-size N`.
+EP is meaningful only for MoE models (gpt-oss-20b, Qwen3-30B-A3B): it distributes experts across GPUs, reducing per-expert memory and improving throughput.
+
+### 13. Timestamped Output Directories (Israel Time)
 ```python
 from zoneinfo import ZoneInfo
 ts = datetime.now(ZoneInfo("Asia/Jerusalem")).strftime("%Y%m%d_%H%M")
 out_dir = Path(results_dir) / ts
 ```
 
-### 13. Script Executability
+### 14. Script Executability
 **RULE**: `bench.py` must have `#!/usr/bin/env python3` shebang and be `chmod +x`.
 
-### 14. Always Update Documentation
+### 15. Always Update Documentation
 **RULE**: After ANY change that affects usage, installation, repo structure, or behaviour — update **both** `README.md` and `.github/copilot-instructions.md` in the same response.
 - New file added → add to repo structure in both docs
 - New CLI flag → add to `## Common Commands` / `## Quick Start`
 - New install step → update `## Installation` in both docs
 - Behaviour change → update relevant rules and notes
 
-### 15. Module Structure (package layout)
+### 16. Module Structure (package layout)
 **RULE**: Business logic lives in `guidellm_bench/` package. `bench.py` is a thin entry point only.
 
 | Module | Responsibility |
@@ -229,7 +241,7 @@ out_dir = Path(results_dir) / ts
 
 Do **not** add new logic directly to `bench.py`.
 
-### 16. Self-Logging (bench.py writes its own log + pid)
+### 17. Self-Logging (bench.py writes its own log + pid)
 **RULE**: After creating `out_dir`, `bench.py` tees stdout/stderr into `out_dir/bench.log` and writes its PID to `out_dir/bench.pid`. No external redirect is needed.
 ```bash
 # Correct:
@@ -291,6 +303,10 @@ nohup ./bench.py &
 
 # With Eagle3 (gpt-oss-120b appended)
 ./bench.py --eagle3
+
+# With Expert Parallelism for MoE models (requires intel/llm-scaler-vllm:0.14.0-b8+)
+./bench.py --ep
+# Adds: gpt-oss-20b tp4+ep4, Qwen3-30B-A3B tp2+ep2, Qwen3-30B-A3B tp4+ep4
 
 # Rebuild dashboard from completed results
 python3 -c "

@@ -100,6 +100,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Append gpt-oss-120b Eagle3 speculative-decoding config (opt-in only)",
     )
     p.add_argument(
+        "--ep", action="store_true",
+        help="Append Expert Parallelism (EP) variants for MoE models "
+             "(requires intel/llm-scaler-vllm:0.14.0-b8+). "
+             "Adds gpt-oss-20b tp4+ep4 and Qwen3-30B-A3B tp2+ep2 / tp4+ep4.",
+    )
+    p.add_argument(
         "--resume", metavar="DIR", nargs="?", const="",
         help="Resume an interrupted run. With a DIR argument, reuses that directory. "
              "Without a DIR argument, automatically resumes the latest run in the "
@@ -190,6 +196,20 @@ def main() -> None:
                         print(f"  SKIP  {model}  tp={tp}  quant={quant or 'none'}  eager={eager}: {reason}")
                         continue
                     configs.append(Config(model=model, tp=tp, quant=quant, eager=eager))
+
+    # Expert Parallelism (EP) variants for MoE models — opt-in via --ep
+    # Requires intel/llm-scaler-vllm:0.14.0-b8+ (EP not in intel/vllm:0.14.1-xpu).
+    if not args.sanity and args.ep:
+        ep_configs = [
+            # gpt-oss-20b: mxfp4 baked in (no quant), tp=4 with ep=4
+            Config(model="openai/gpt-oss-20b",    tp=4, quant=None,  eager=True, expert_parallel_size=4),
+            # Qwen3-30B-A3B (MoE): fp8, tp=2+ep=2 and tp=4+ep=4
+            Config(model="Qwen/Qwen3-30B-A3B",    tp=2, quant="fp8", eager=True, expert_parallel_size=2),
+            Config(model="Qwen/Qwen3-30B-A3B",    tp=4, quant="fp8", eager=True, expert_parallel_size=4),
+        ]
+        for c in ep_configs:
+            configs.append(c)
+            print(f"  +    {c.model}  tp={c.tp}  quant={c.quant or 'none'}  ep={c.expert_parallel_size}  (EP via --ep)")
 
     # gpt-oss-120b Eagle3 is opt-in (tp=8, no quant — mxfp4 baked in)
     if not args.sanity and args.eagle3:

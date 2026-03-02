@@ -57,6 +57,9 @@ def build_vllm_cmd(cfg: Config, max_model_len: int) -> str:
         parts.append(f"--quantization {cfg.quant}")
     if cfg.speculative_config:
         parts.append(f"--speculative_config '{cfg.speculative_config}'")
+    if cfg.expert_parallel_size:
+        parts.append("--enable-expert-parallel")
+        parts.append(f"--expert-parallel-size {cfg.expert_parallel_size}")
     return " ".join(parts)
 
 

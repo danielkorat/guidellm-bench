@@ -60,7 +60,8 @@ class Config:
     tp: int
     quant: Optional[str]
     eager: bool
-    speculative_config: Optional[str] = None  # JSON string for --speculative_config
+    speculative_config: Optional[str] = None       # JSON string for --speculative_config
+    expert_parallel_size: Optional[int] = None     # --expert-parallel-size N (MoE EP)
 
     @property
     def name(self) -> str:
@@ -68,7 +69,8 @@ class Config:
         m = self.model.replace("/", "_")
         q = self.quant or "none"
         suffix = "-eagle3" if self.speculative_config else ""
-        return f"{m}_tp{self.tp}_quant-{q}{suffix}"
+        ep_suffix = f"-ep{self.expert_parallel_size}" if self.expert_parallel_size else ""
+        return f"{m}_tp{self.tp}_quant-{q}{suffix}{ep_suffix}"
 
 
 # ---------------------------------------------------------------------------
