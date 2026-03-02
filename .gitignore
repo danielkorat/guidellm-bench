@@ -6,3 +6,4 @@ bench_full.log
 bench_full.pid
 /tmp/
 nohup.out
+guidellm_bench.egg-info/
