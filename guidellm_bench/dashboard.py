@@ -65,11 +65,28 @@ def _build_subtitle(records: list[dict]) -> str:
         if n_req is not None:
             parts.append(f"{n_req} requests")
         if med_in is not None:
-            parts.append(f"~{med_in} input tokens")
+            parts.append(f"~{med_in} input tok")
         if med_out is not None:
-            parts.append(f"~{med_out} output tokens")
+            parts.append(f"~{med_out} output tok")
+
+        # Benchmark parameters
         parts.append(f"profile: {profile}")
         parts.append(f"format: {req_fmt}")
+
+        constraints = b["config"].get("constraints", {})
+        max_sec = constraints.get("max_seconds", {})
+        if isinstance(max_sec, dict) and max_sec.get("max_duration"):
+            parts.append(f"max-seconds: {int(max_sec['max_duration'])}")
+        max_err = constraints.get("max_errors", {})
+        if isinstance(max_err, dict) and max_err.get("max_errors"):
+            parts.append(f"max-errors: {max_err['max_errors']}")
+
+        warmup   = b["config"].get("warmup",   {})
+        cooldown = b["config"].get("cooldown", {})
+        w_pct = (warmup   or {}).get("percent") if isinstance(warmup,   dict) else None
+        c_pct = (cooldown or {}).get("percent") if isinstance(cooldown, dict) else None
+        if w_pct is not None or c_pct is not None:
+            parts.append(f"warmup/cooldown: {w_pct or 0}/{c_pct or 0}")
 
         return " &nbsp;|&nbsp; ".join(parts)
     except Exception:

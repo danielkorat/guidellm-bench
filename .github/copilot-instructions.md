@@ -125,11 +125,13 @@ export NO_PROXY=localhost,127.0.0.1,0.0.0.0
 | gpt-oss-20b + fp8 | Model has mxfp4 baked in; fp8 override rejected |
 | gpt-oss-20b + eager=false | `UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY` on XPU |
 | Qwen3-30B + quant=none | IPEX/XPU mode-stack bug (unquantized BF16 fails) |
+| Qwen3-4B + quant=none | fp8 is uniformly faster (lower TTFT/ITL/lat, higher TPS — verified 20260302); skip unquantized |
 
-### 6. Defaults: tp=4, eager=true only
-**RULE**: Full runs default to `tp=[4]` and `eager=["true"]`.
+### 6. Defaults: tp=[2,4], eager=true only
+**RULE**: Full runs default to `tp=[2, 4]` and `eager=["true"]`.
 - `tp=8` available via `--tp 4 8` when needed.
 - `eager=false` is always skipped (OOM on gpt-oss-20b; negligible benefit elsewhere).
+- `eager` is always `True` and is **omitted from `Config.name`** to keep experiment names short.
 
 ### 7. Benchmark Quality Controls (full runs)
 ```
@@ -226,7 +228,7 @@ nohup ./bench.py > bench_full.log 2>&1 & echo $! > bench_full.pid
 ### Full Run Defaults
 | Parameter | Value |
 |---|---|
-| `tp` | `[4]` |
+| `tp` | `[2, 4]` |
 | `quant` | `["none", "fp8"]` |
 | `eager` | `["true"]` |
 | `input_len` | 1024 |

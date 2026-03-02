@@ -1649,3 +1649,20 @@ Results: guidellm_results/20260302_1346
 
   Dashboard → guidellm_results/20260302_1346/dashboard.html
   Serve script → guidellm_results/20260302_1346/serve_dashboard.sh
+Results → guidellm_results/20260302_1527
+
+  Downloading HuggingFaceH4/aime_2024 (30 problems)...
+  AIME dataset ready: 30 problems → /tmp/aime_2024_v2.jsonl
+  SKIP  openai/gpt-oss-20b  tp=2  quant=fp8  eager=True: gpt-oss-20b + fp8 (mxfp4 config mismatch)
+  SKIP  openai/gpt-oss-20b  tp=4  quant=fp8  eager=True: gpt-oss-20b + fp8 (mxfp4 config mismatch)
+  SKIP  Qwen/Qwen3-30B-A3B  tp=2  quant=none  eager=True: Qwen3-30B + no quant (IPEX mode-stack bug)
+  SKIP  Qwen/Qwen3-30B-A3B  tp=4  quant=none  eager=True: Qwen3-30B + no quant (IPEX mode-stack bug)
+  SKIP  Qwen/Qwen3-4B-Thinking-2507  tp=2  quant=none  eager=True: Qwen3-4B + no quant (fp8 is uniformly faster: lower TTFT/ITL/lat, higher TPS — verified 20260302)
+  SKIP  Qwen/Qwen3-4B-Thinking-2507  tp=4  quant=none  eager=True: Qwen3-4B + no quant (fp8 is uniformly faster: lower TTFT/ITL/lat, higher TPS — verified 20260302)
+
+6 configurations to benchmark
+
+
+============================================================
+[1/6]  openai_gpt-oss-20b_tp2_quant-none
+============================================================

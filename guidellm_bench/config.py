@@ -23,7 +23,7 @@ EAGLE3_SPECULATIVE_CONFIG = (
 
 FULL = dict(
     models=["openai/gpt-oss-20b", "Qwen/Qwen3-30B-A3B", "Qwen/Qwen3-4B-Thinking-2507"],
-    tp=[4],           # tp=8 available via --tp 4 8
+    tp=[2, 4],        # tp=8 available via --tp 4 8; tp=2 added to search space
     quant=["none", "fp8"],
     eager=["true"],   # eager=false always skipped (OOM on 20b, negligible gain elsewhere)
     input_len=1024,
@@ -64,11 +64,11 @@ class Config:
 
     @property
     def name(self) -> str:
+        # eager is always True — omit from name to keep it short
         m = self.model.replace("/", "_")
         q = self.quant or "none"
-        e = "true" if self.eager else "false"
         suffix = "-eagle3" if self.speculative_config else ""
-        return f"{m}_tp{self.tp}_quant-{q}_eager-{e}{suffix}"
+        return f"{m}_tp{self.tp}_quant-{q}{suffix}"
 
 
 # ---------------------------------------------------------------------------
@@ -85,4 +85,6 @@ def skip_reason(model: str, quant: Optional[str], eager: bool) -> Optional[str]:
         return "gpt-oss-20b + eager=false (OOM: UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY)"
     if "Qwen3-30B" in model and quant is None:
         return "Qwen3-30B + no quant (IPEX mode-stack bug)"
+    if "Qwen3-4B" in model and quant is None:
+        return "Qwen3-4B + no quant (fp8 is uniformly faster: lower TTFT/ITL/lat, higher TPS — verified 20260302)"
     return None
