@@ -27,9 +27,15 @@ if not os.path.exists("/.dockerenv"):
     _tty = ["-t"] if sys.stdout.isatty() else []
     # --ep requires intel/llm-scaler-vllm:0.14.0-b8 (EP not in intel/vllm:0.14.1-xpu)
     _container = "lsv-container" if "--ep" in sys.argv else "vllm-0.14"
-    _cmd = ["docker", "exec", "-w", "/root/guidellm-bench"] + _tty + [
-        _container, "python3", "/root/guidellm-bench/bench.py",
-    ] + sys.argv[1:]
+    # NOTE: xpu-smi enters D (uninterruptible sleep) state when the GPU is in use
+    # by vLLM and cannot be killed even with SIGKILL.  GPU memory is instead parsed
+    # from the vLLM server log after each config run (parse_model_mem_gib in server.py).
+    _cmd = (
+        ["docker", "exec", "-w", "/root/guidellm-bench"]
+        + _tty
+        + [_container, "python3", "/root/guidellm-bench/bench.py"]
+        + sys.argv[1:]
+    )
     sys.exit(subprocess.call(_cmd))
 
 # ---------------------------------------------------------------------------
@@ -49,6 +55,7 @@ from guidellm_bench import (
     Config,
     GpuMonitor,
     build_dashboard_html,
+    parse_model_mem_gib,
     prepare_aime_dataset,
     run_guidellm,
     skip_reason,
@@ -181,11 +188,18 @@ def main() -> None:
 
     # When resuming, seed gpu_data from any existing monitor files
     gpu_data: dict[str, list] = {}
+    model_mem_gib: dict[str, float] = {}
     if args.resume is not None:
         for p in out_dir.glob("*_gpu_monitor.json"):
             cfg_name = p.stem.replace("_gpu_monitor", "")
             with open(p) as f:
                 gpu_data[cfg_name] = json.load(f)
+        # Re-parse model memory from existing server logs
+        for p in out_dir.glob("logs/*_server.log"):
+            cfg_name = p.stem.replace("_server", "")
+            mem = parse_model_mem_gib(p)
+            if mem is not None:
+                model_mem_gib[cfg_name] = mem
 
     # Build config list, applying skip rules
     configs: list[Config] = []
@@ -278,6 +292,12 @@ def main() -> None:
             if dest.suffix == ".html":
                 write_serve_script(dest)
 
+        # Parse model weight memory from vLLM server log (reliable; no xpu-smi needed)
+        mem_gib = parse_model_mem_gib(log_dir / f"{cfg.name}_server.log")
+        if mem_gib is not None:
+            model_mem_gib[cfg.name] = mem_gib
+            print(f"  Model weights: {mem_gib:.2f} GiB/GPU × {cfg.tp} GPUs = {mem_gib * cfg.tp:.2f} GiB total")
+
         elapsed = time.time() - t0
         print(f"\n  ✓  {cfg.name}  ({elapsed:.0f}s)  →  {', '.join(saved)}", flush=True)
         succeeded.append(cfg.name)
@@ -292,7 +312,7 @@ def main() -> None:
     print(f"\nResults: {out_dir}")
 
     if succeeded:
-        build_dashboard_html(out_dir, succeeded, gpu_data=gpu_data)
+        build_dashboard_html(out_dir, succeeded, gpu_data=gpu_data, model_mem_gib=model_mem_gib)
         _serve_dashboard(out_dir)
 
 

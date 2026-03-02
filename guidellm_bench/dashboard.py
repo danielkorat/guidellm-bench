@@ -4,7 +4,7 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 
 
 FIXED_TITLE = "Benchmark Dashboard \u2014 Intel Arc Pro B60 (multi-gpu)"
@@ -220,13 +220,16 @@ def build_dashboard_html(
     out_dir: Path,
     succeeded: list[str],
     gpu_data: Optional[dict] = None,
+    model_mem_gib: Optional[Dict[str, float]] = None,
 ) -> Optional[Path]:
     """Build dashboard.html combining all per-config guidellm outputs.
 
     Args:
-        out_dir:    Directory containing `{name}_benchmarks.json` files.
-        succeeded:  List of config names that completed successfully.
-        gpu_data:   Optional dict {cfg.name: [readings]} from GpuMonitor.
+        out_dir:       Directory containing `{name}_benchmarks.json` files.
+        succeeded:     List of config names that completed successfully.
+        gpu_data:      Optional dict {cfg.name: [readings]} from GpuMonitor.
+        model_mem_gib: Optional dict {cfg.name: per_gpu_weight_gib} parsed
+                       from vLLM server logs.  Used when gpu_data is absent.
 
     Returns:
         Path to written dashboard.html, or None if no data found.
@@ -271,11 +274,19 @@ def build_dashboard_html(
 
         gpu_readings = (gpu_data or {}).get(rec["name"], [])
         if gpu_readings:
+            # xpu-smi readings available — sum peak MiB across devices, convert to GiB
             by_dev: dict[str, float] = {}
             for r in gpu_readings:
                 if r.get("mem_mib") is not None:
                     by_dev[r["device"]] = max(by_dev.get(r["device"], 0.0), r["mem_mib"])
-            bar_gpu_mem.append(round(sum(by_dev.values()), 1) if by_dev else None)
+            total_gib = sum(by_dev.values()) / 1024 if by_dev else None
+            bar_gpu_mem.append(round(total_gib, 2) if total_gib is not None else None)
+        elif (model_mem_gib or {}).get(rec["name"]):
+            # Server log fallback: per-GPU weight memory × number of GPUs
+            per_gpu = model_mem_gib[rec["name"]]  # type: ignore[index]
+            tp_m = re.search(r'_tp(\d+)', rec["name"])
+            tp = int(tp_m.group(1)) if tp_m else 1
+            bar_gpu_mem.append(round(per_gpu * tp, 2))
         else:
             bar_gpu_mem.append(None)
 
@@ -437,7 +448,7 @@ def build_dashboard_html(
     <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">ITL (ms) &mdash; median</div><div class="card-body"><canvas id="c-bar-itl"></canvas></div></div></div>
     <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">Throughput req/s</div><div class="card-body"><canvas id="c-bar-rps"></canvas></div></div></div>
     <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">Output tok/s</div><div class="card-body"><canvas id="c-bar-tps"></canvas></div></div></div>
-    <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">Peak GPU Memory Used (MiB, all devices summed)</div><div class="card-body"><canvas id="c-bar-mem"></canvas></div></div></div>
+    <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">Model Weights Memory (GiB, all devices)</div><div class="card-body"><canvas id="c-bar-mem"></canvas></div></div></div>
     <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">TTFT (ms) vs Concurrency &mdash; sweep</div><div class="card-body"><canvas id="c-line-ttft" style="max-height:260px"></canvas></div></div></div>
     <div class="col-12"><div class="card shadow-sm"><div class="card-header fw-bold">Throughput (req/s) vs Concurrency &mdash; sweep</div><div class="card-body"><canvas id="c-line-rps" style="max-height:260px"></canvas></div></div></div>
   </div>
@@ -516,7 +527,7 @@ bar('c-bar-ttft', {json.dumps(bar_ttft)},     'ms');
 bar('c-bar-itl',  {json.dumps(bar_itl)},      'ms');
 bar('c-bar-rps',  {json.dumps(bar_tput_rps)}, 'req/s');
 bar('c-bar-tps',  {json.dumps(bar_tput_tps)}, 'tok/s');
-bar('c-bar-mem',  {json.dumps(bar_gpu_mem)},  'MiB');
+bar('c-bar-mem',  {json.dumps(bar_gpu_mem)},  'GiB');
 line('c-line-ttft', {json.dumps(line_ttft_ds)});
 line('c-line-rps',  {json.dumps(line_tput_ds)});
 </script>

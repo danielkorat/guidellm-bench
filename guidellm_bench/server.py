@@ -116,3 +116,32 @@ def stop_server(proc: Optional[subprocess.Popen] = None) -> None:
     for pat in ("vllm serve", "vllm bench", "guidellm benchmark"):
         subprocess.run(["pkill", "-f", pat], capture_output=True)
     time.sleep(5)
+
+
+# ---------------------------------------------------------------------------
+# Server log parsing
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+
+def parse_model_mem_gib(log_path: Path) -> Optional[float]:
+    """Parse 'Model loading took X.XX GiB memory' from vLLM server log (TP0).
+
+    vLLM logs this line once per Worker_TP0 after weights are loaded.  The
+    value is per-GPU; multiply by cfg.tp to get total across all devices.
+
+    Returns per-GPU weight memory in GiB, or None if the line is not found.
+    This is the most reliable source for GPU memory info — it doesn't require
+    xpu-smi (which hangs in D state while the GPU is in use).
+    """
+    pat = _re.compile(r'Model loading took ([\d.]+)\s+GiB memory')
+    try:
+        with open(log_path) as f:
+            for line in f:
+                m = pat.search(line)
+                if m:
+                    return float(m.group(1))
+    except OSError:
+        pass
+    return None

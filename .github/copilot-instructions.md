@@ -50,7 +50,7 @@ Benchmarking tool (`bench.py` entry point + `guidellm_bench/` package) that runs
   - **Default** (no `--ep`): `vllm-0.14` (`intel/vllm:0.14.1-xpu`)
   - **With `--ep`**: `lsv-container` (`intel/llm-scaler-vllm:0.14.0-b8`) — required for Expert Parallelism
 
-  All subprocess calls (vLLM, guidellm, pkill) are made directly inside the container — no docker exec wrapping needed. The only exception is `xpu-smi` GPU monitoring, which silently fails inside the container (GpuMonitor degrades gracefully to empty readings).
+  All subprocess calls (vLLM, guidellm, pkill) are made directly inside the container — no docker exec wrapping needed.
 - **Volume mount**: Host `/root/dkorat/` → Container `/root/` — result files land on both
 
 ## Installation
@@ -186,10 +186,21 @@ guidellm benchmark \
 - Passed via: `--data /tmp/aime_2024_v2.jsonl --data-samples -1 --max-requests 30`
 - Falls back to synthetic tokens silently if the download fails (no internet).
 
-### 9. GPU Monitoring via xpu-smi
-**RULE**: `xpu-smi` does **not** work inside the container. Since `bench.py` now runs inside the
-container, `GpuMonitor` silently catches the failure and returns empty `[]` readings.
-GPU monitoring is best-effort; its absence does not affect benchmark correctness.
+### 9. GPU Memory via Server Log Parsing
+**RULE**: Do NOT use `xpu-smi` for GPU memory monitoring. `xpu-smi dump` enters
+`D` (uninterruptible sleep) state when the GPU is in use by vLLM and **cannot be
+killed even with SIGKILL**. This would accumulate zombie processes and block the host.
+
+Instead, parse GPU memory directly from the vLLM server log:
+```python
+# server.py — parse_model_mem_gib(log_path: Path) -> Optional[float]
+# Returns per-GPU weight memory in GiB from:
+# "Model loading took X.XX GiB memory"
+# Multiply by cfg.tp to get total across all devices.
+```
+`GpuMonitor` in `monitor.py` is now a no-op stub (kept for backward compat).
+The dashboard "Model Weights Memory (GiB)" bar is populated from `model_mem_gib` dict
+passed to `build_dashboard_html()`.
 
 ### 10. Health Check
 **RULE**: Use `curl -f` and check only `returncode == 0`. The `/health` endpoint returns HTTP 200 with an empty body — do NOT check stdout content.
@@ -239,7 +250,7 @@ out_dir = Path(results_dir) / ts
 | `config.py` | `Config` dataclass, `FULL`/`SANITY` defaults, `skip_reason()` |
 | `docker.py` | `CONTAINER_NAME`, `_PREAMBLE`, `ensure_container_running()` (used by install.sh) |
 | `server.py` | vLLM server lifecycle: start, health-check, stop |
-| `monitor.py` | `GpuMonitor` background thread (xpu-smi) |
+| `monitor.py` | `GpuMonitor` no-op stub (xpu-smi cannot be used — see Rule 9) |
 | `dataset.py` | AIME 2024 dataset download and caching |
 | `benchmark.py` | `run_guidellm()` and `copy_results()` |
 | `dashboard.py` | `build_dashboard_html()` and `write_serve_script()` |
@@ -333,14 +344,14 @@ bash guidellm_results/YYYYMMDD_HHMM/serve_dashboard.sh
 | TTFT = 0ms on thinking models | Chat template injects thinking tokens | Use `--request-format /v1/completions` (Rule 4) |
 | OOM on gpt-oss-20b + eager=false | XPU memory exhausted by graph compilation buffers | Skip (Rule 5) |
 | Qwen3-30B + fp8 mismatch | mxfp4 in model config vs fp8 override | Skip (Rule 5) |
-| xpu-smi unavailable | Tool not on PATH inside container | GpuMonitor silently returns `[]`; dashboard shows fallback |
+| Peak GPU Memory chart empty | xpu-smi enters D state when GPU in use; cannot kill | `parse_model_mem_gib()` parses server log instead; passes `model_mem_gib=` to `build_dashboard_html` |
 | Dashboard shows 0 for all metrics | `b['metrics']` aggregates are zero-filled in guidellm v0.6 | Extract medians from `b['requests']['successful']` per-request fields |
 | Models generate only 16 output tokens | `output_tokens` column not mapped to `max_tokens`; vLLM default is 16 | Use column name `output_tokens_count` (guidellm default, auto-detected) |
 | Dashboard shows only previous run's config | `lsof` not available inside container — prior `http.server` held port 8081; new server failed to bind silently | `_serve_dashboard` now uses `fuser -k {port}/tcp` (available in container) with `lsof` as host fallback |
 
 ---
 
-**Last Updated**: March 2, 2026 — bench.py and guidellm_bench/ run inside container; re-exec guard auto-relaunches from host; all deps installed in container only; xpu-smi silently skipped; `_serve_dashboard` uses `fuser` to kill prior port holder (lsof unavailable in container)  
+**Last Updated**: March 2, 2026 — GPU memory from server log parsing (`parse_model_mem_gib`); xpu-smi disabled (hangs in D state when GPU busy); dashboard shows "Model Weights Memory (GiB)"; `_serve_dashboard` uses `fuser`  
 **Primary Maintainer**: Daniel Korat, Intel
 
 ---
@@ -368,3 +379,4 @@ Mistakes that happened once and must not repeat:
 | 15 | `docker exec` re-exec guard omitted `-w /root/guidellm-bench` — container default cwd is `/workspace/vllm/`, so results landed there instead of the volume-mounted `/root/` | Always pass `-w /root/guidellm-bench` in the re-exec: `docker exec -w /root/guidellm-bench vllm-0.14 python3 /root/guidellm-bench/bench.py` |
 | 16 | `_serve_dashboard` used `lsof` to kill the old server, but `lsof` is not available inside the vLLM container — the kill silently no-oped and the new http.server failed to bind, leaving the old (sanity) dashboard visible | Use `fuser -k {port}/tcp 2>/dev/null || lsof -ti tcp:{port} ...` — `fuser` is available in the container |
 | 17 | `pkill -f guidellm` in `stop_server()` killed bench.py itself — `/root/guidellm-bench/bench.py` contains "guidellm" in the path | Use `pkill -f 'guidellm benchmark'` to match only the guidellm CLI invocation, not bench.py's own path. |
+| 18 | Used `xpu-smi dump` to monitor GPU memory during benchmarks — processes entered `D` (uninterruptible sleep) state when the GPU was in use and could not be killed even with `SIGKILL` | Never call `xpu-smi` while vLLM holds the GPU. Use `parse_model_mem_gib()` to read GPU weight memory from the vLLM server log instead. |
