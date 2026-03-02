@@ -25,7 +25,7 @@ import sys
 
 if not os.path.exists("/.dockerenv"):
     _tty = ["-t"] if sys.stdout.isatty() else []
-    _cmd = ["docker", "exec"] + _tty + [
+    _cmd = ["docker", "exec", "-w", "/root/guidellm-bench"] + _tty + [
         "vllm-0.14", "python3", "/root/guidellm-bench/bench.py",
     ] + sys.argv[1:]
     sys.exit(subprocess.call(_cmd))

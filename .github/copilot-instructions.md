@@ -111,7 +111,7 @@ calls (vLLM, guidellm, pkill, curl) are made **directly** — no `docker exec` w
 # bench.py re-exec guard (top of file, stdlib only):
 if not os.path.exists("/.dockerenv"):
     _tty = ["-t"] if sys.stdout.isatty() else []
-    sys.exit(subprocess.call(["docker", "exec"] + _tty + [
+    sys.exit(subprocess.call(["docker", "exec", "-w", "/root/guidellm-bench"] + _tty + [
         "vllm-0.14", "python3", "/root/guidellm-bench/bench.py"
     ] + sys.argv[1:]))
 ```
@@ -343,3 +343,4 @@ Mistakes that happened once and must not repeat:
 | 12 | Installed Python deps on the host with `pip install -e .` instead of inside the container | All deps (datasets, guidellm, tzdata) must be installed **inside the container** only. `install.sh` does `docker exec vllm-0.14 pip install -e ".[guidellm]"`. No host-side pip install. |
 | 13 | Wrote subprocess calls in server.py/benchmark.py that wrapped tools with `docker_exec_cmd()` | bench.py runs inside the container; call vLLM, guidellm, pkill directly as plain subprocesses with `bash --login -c "{_PREAMBLE} && {cmd}"`. |
 | 14 | Set `SANITY.quant=["none"]` — the only sanity config was immediately skipped by the Qwen3-4B+quant=none rule | SANITY must use `quant=["fp8"]` since Qwen3-4B + quant=none is always skipped. |
+| 15 | `docker exec` re-exec guard omitted `-w /root/guidellm-bench` — container default cwd is `/workspace/vllm/`, so results landed there instead of the volume-mounted `/root/` | Always pass `-w /root/guidellm-bench` in the re-exec: `docker exec -w /root/guidellm-bench vllm-0.14 python3 /root/guidellm-bench/bench.py` |
