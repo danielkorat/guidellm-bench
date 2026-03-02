@@ -271,6 +271,38 @@ def main() -> None:
 
     if succeeded:
         build_dashboard_html(out_dir, succeeded, gpu_data=gpu_data)
+        _serve_dashboard(out_dir)
+
+
+_DASHBOARD_PORT = 8081
+
+
+def _serve_dashboard(out_dir: Path) -> None:
+    """Kill any prior server on the dashboard port, start a new one, print URL."""
+    dashboard = out_dir / "dashboard.html"
+    if not dashboard.exists():
+        return
+
+    # Kill any process already holding the port.
+    subprocess.run(
+        ["bash", "-c", f"lsof -ti tcp:{_DASHBOARD_PORT} 2>/dev/null | xargs -r kill -9"],
+        capture_output=True,
+    )
+    time.sleep(0.5)
+
+    # Start http.server in background; --directory makes it cwd-independent.
+    subprocess.Popen(
+        [
+            "python3", "-m", "http.server", str(_DASHBOARD_PORT),
+            "--directory", str(out_dir.resolve()),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,  # detach so it survives bench.py exiting
+    )
+    time.sleep(0.5)
+    url = f"http://localhost:{_DASHBOARD_PORT}/dashboard.html"
+    print(f"\n  Dashboard served at: {url}\n", flush=True)
 
 
 if __name__ == "__main__":
