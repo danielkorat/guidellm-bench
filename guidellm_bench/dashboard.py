@@ -107,18 +107,28 @@ GPU_COLORS = [
 # Serve script helper
 # ---------------------------------------------------------------------------
 
-def write_serve_script(html_path: Path) -> None:
+def write_serve_script(html_path: Path, port: int = 8081) -> None:
     """Write a serve_<name>.sh next to *html_path* that starts an HTTP server."""
+    # Use the resolved absolute path so the script is cwd-independent.
+    abs_dir = str(html_path.resolve().parent)
     script = html_path.parent / f"serve_{html_path.stem}.sh"
     script.write_text(
         "#!/bin/bash\n"
         "# Auto-generated – serves the HTML report and opens it in your browser.\n"
-        'cd "$(dirname "$0")"\n'
-        "PORT=$(python3 -c \"import socket; s=socket.socket(); s.bind(('',0));"
-        " print(s.getsockname()[1]); s.close()\")\n"
+        "# SCRIPT_DIR is the absolute path baked in at generation time — cwd-independent.\n"
+        f'SCRIPT_DIR="{abs_dir}"\n'
+        f"PORT={port}\n"
         f'HTML="{html_path.name}"\n'
+        "# Kill any process already listening on $PORT\n"
+        'OLD_PID=$(lsof -ti tcp:$PORT 2>/dev/null)\n'
+        'if [ -n "$OLD_PID" ]; then\n'
+        '    echo "Killing existing server on port $PORT (PID $OLD_PID)"\n'
+        '    kill "$OLD_PID" 2>/dev/null\n'
+        '    sleep 1\n'
+        'fi\n'
         'echo "Serving http://localhost:$PORT/$HTML  (Ctrl-C to stop)"\n'
-        'python3 -m http.server "$PORT" &\n'
+        # --directory ensures http.server always serves from SCRIPT_DIR regardless of cwd
+        'python3 -m http.server "$PORT" --directory "$SCRIPT_DIR" &\n'
         "SERVER_PID=$!\n"
         "sleep 1\n"
         '"$BROWSER" "http://localhost:$PORT/$HTML" 2>/dev/null || '
