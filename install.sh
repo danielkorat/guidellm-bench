@@ -114,10 +114,10 @@ docker exec "${CONTAINER}" python3 -c \
 # =============================================================================
 info "Installing Python dependencies inside container..."
 # The volume mount makes /root/dkorat/ → /root/ inside the container.
-# In the vLLM container pip is installed by debian (no RECORD file); skip
-# self-upgrade — the bundled pip is fine.
+# In the vLLM container pip is OS-managed (PEP 668); --break-system-packages is
+# required. Skipping pip self-upgrade (no RECORD file in the debian-managed pip).
 docker exec "${CONTAINER}" bash -c \
-  'pip install --quiet -e "/root/guidellm-bench[guidellm]"'
+  'pip install --quiet --break-system-packages -e "/root/guidellm-bench[guidellm]"'
 
 # =============================================================================
 # 4. Verify imports (container only)
