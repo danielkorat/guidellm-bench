@@ -284,8 +284,11 @@ def _serve_dashboard(out_dir: Path) -> None:
         return
 
     # Kill any process already holding the port.
+    # Use fuser (available inside the vLLM container); fall back to lsof on the host.
     subprocess.run(
-        ["bash", "-c", f"lsof -ti tcp:{_DASHBOARD_PORT} 2>/dev/null | xargs -r kill -9"],
+        ["bash", "-c",
+         f"fuser -k {_DASHBOARD_PORT}/tcp 2>/dev/null || "
+         f"lsof -ti tcp:{_DASHBOARD_PORT} 2>/dev/null | xargs -r kill -9"],
         capture_output=True,
     )
     time.sleep(0.5)
