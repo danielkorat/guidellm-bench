@@ -50,7 +50,9 @@ class GpuMonitor:
 
     def _poll(self) -> None:
         try:
-            # xpu-smi runs on the host machine directly (not inside the container).
+            # xpu-smi does NOT work inside the container. bench.py re-execs
+            # itself inside the container, so this call will silently fail and
+            # return empty readings. GPU monitoring is a best-effort feature.
             r = subprocess.run(
                 ["xpu-smi", "dump", "-d", "-1", "-m", "0,1,18", "-i", "1", "-n", "1"],
                 capture_output=True, text=True, timeout=8,

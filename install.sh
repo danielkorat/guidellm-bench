@@ -120,9 +120,9 @@ docker exec "${CONTAINER}" bash -c \
   'pip install --quiet -e "/root/guidellm-bench[guidellm]"'
 
 # =============================================================================
-# 4. Verify imports inside container
+# 4. Verify imports (container only)
 # =============================================================================
-info "Verifying imports inside container..."
+info "Verifying container-side imports..."
 docker exec "${CONTAINER}" python3 - <<'EOF'
 import importlib, sys
 
@@ -146,8 +146,9 @@ EOF
 
 info "All checks passed ✓"
 echo ""
-echo "  Quick-start (run from host machine):"
-echo "    ./bench.py --sanity       # fast smoke test (single config, 4 requests)"
+echo "  Quick-start (from the host machine):"
+echo "    ./bench.py --sanity       # fast smoke test (auto-relaunches inside container)"
 echo "    ./bench.py                # full suite"
+echo "    nohup ./bench.py &        # full suite in background (self-logs)"
 echo ""
 

@@ -5,3 +5,4 @@ guidellm_sanity_results/
 bench_full.log
 bench_full.pid
 /tmp/
+nohup.out

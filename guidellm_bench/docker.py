@@ -1,4 +1,10 @@
-"""Docker container helpers — launch and exec into intel/vllm:0.14.1-xpu."""
+"""Docker container helpers — launch intel/vllm:0.14.1-xpu.
+
+bench.py runs *inside* the container (auto-relaunched via the re-exec guard).
+This module is only used at install time (ensure_container_running) and to
+provide _PREAMBLE for sourcing oneAPI before subprocess calls within
+server.py and benchmark.py.
+"""
 
 import os
 import subprocess
@@ -14,7 +20,9 @@ DOCKER_IMAGE = "intel/vllm:0.14.1-xpu"
 HOST_ROOT = "/root/dkorat"
 CONTAINER_ROOT = "/root"
 
-# The bash preamble run before every command inside the container.
+# The bash preamble that must precede every subprocess launched inside the
+# container: sources oneAPI and sets no_proxy so localhost calls don't go
+# through the Intel corporate proxy.
 _PREAMBLE = (
     "source /opt/intel/oneapi/setvars.sh --force && "
     "export no_proxy=localhost,127.0.0.1,0.0.0.0 && "
@@ -23,28 +31,7 @@ _PREAMBLE = (
 
 
 # ---------------------------------------------------------------------------
-# Path translation
-# ---------------------------------------------------------------------------
-
-def host_to_container(path: str) -> str:
-    """Convert a host-side path under HOST_ROOT to its container-side equivalent."""
-    if path.startswith(HOST_ROOT):
-        return CONTAINER_ROOT + path[len(HOST_ROOT):]
-    return path
-
-
-# ---------------------------------------------------------------------------
-# Command helpers
-# ---------------------------------------------------------------------------
-
-def docker_exec_cmd(inner_cmd: str) -> list[str]:
-    """Return argv list: docker exec <container> bash --login -c '<preamble> && <inner_cmd>'."""
-    full = f"{_PREAMBLE} && {inner_cmd}"
-    return ["docker", "exec", CONTAINER_NAME, "bash", "--login", "-c", full]
-
-
-# ---------------------------------------------------------------------------
-# Container lifecycle
+# Container lifecycle (used by install.sh; bench.py runs inside the container)
 # ---------------------------------------------------------------------------
 
 def ensure_container_running() -> None:

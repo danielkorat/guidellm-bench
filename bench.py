@@ -8,12 +8,33 @@ Usage:
     ./bench.py --models openai/gpt-oss-20b --tp 4 --quantization none
 
 See guidellm_bench/ for implementation details.
+
+Note: this script is designed to run *inside* the intel/vllm:0.14.1-xpu
+container. When invoked from the host it automatically re-execs itself inside
+the container via 'docker exec'. The only exception is xpu-smi GPU monitoring,
+which only works on the host and silently degrades inside the container.
 """
 
+# ---------------------------------------------------------------------------
+# Container guard — re-exec inside the container when called from the host.
+# Must use only stdlib and happen before any guidellm_bench imports.
+# ---------------------------------------------------------------------------
+import os
+import subprocess
+import sys
+
+if not os.path.exists("/.dockerenv"):
+    _tty = ["-t"] if sys.stdout.isatty() else []
+    _cmd = ["docker", "exec"] + _tty + [
+        "vllm-0.14", "python3", "/root/guidellm-bench/bench.py",
+    ] + sys.argv[1:]
+    sys.exit(subprocess.call(_cmd))
+
+# ---------------------------------------------------------------------------
+# Normal imports — only reached when running inside the container.
+# ---------------------------------------------------------------------------
 import argparse
 import json
-import os
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -26,7 +47,6 @@ from guidellm_bench import (
     Config,
     GpuMonitor,
     build_dashboard_html,
-    ensure_container_running,
     prepare_aime_dataset,
     run_guidellm,
     skip_reason,
@@ -91,9 +111,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_arg_parser().parse_args()
     D = SANITY if args.sanity else FULL
-
-    # Ensure the Docker container is running before any other operation.
-    ensure_container_running()
 
     def get(attr: str, key: str):
         v = getattr(args, attr.replace("-", "_"), None)

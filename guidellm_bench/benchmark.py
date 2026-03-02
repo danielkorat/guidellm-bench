@@ -1,4 +1,8 @@
-"""guidellm benchmark runner."""
+"""guidellm benchmark runner.
+
+Runs inside the intel/vllm:0.14.1-xpu container. All paths are
+container-native; no docker exec wrapping needed.
+"""
 
 import json
 import shutil
@@ -7,13 +11,10 @@ from pathlib import Path
 from typing import Optional
 
 from .config import Config, PORT
-from .docker import HOST_ROOT, docker_exec_cmd, host_to_container
+from .docker import _PREAMBLE
 
-# Output written here by guidellm (container-side path); accessible on the host
-# via the volume mount /root/dkorat/ → /root/.
-_OUT_TMP_HOST = HOST_ROOT + "/guidellm_out_tmp"         # host path for shutil / Path ops
-_OUT_TMP_CONTAINER = "/root/guidellm_out_tmp"           # container path for --output-dir arg
-_OUT_TMP = _OUT_TMP_HOST  # backward-compat alias
+# Temp directory for guidellm output files (ephemeral per benchmark run).
+_OUT_TMP = Path("/tmp/guidellm_out_tmp")
 
 
 def run_guidellm(
@@ -42,16 +43,14 @@ def run_guidellm(
     Returns:
         Parsed benchmarks.json dict, or None on failure.
     """
-    shutil.rmtree(_OUT_TMP_HOST, ignore_errors=True)
-    Path(_OUT_TMP_HOST).mkdir(parents=True, exist_ok=True)
+    shutil.rmtree(_OUT_TMP, ignore_errors=True)
+    _OUT_TMP.mkdir(parents=True, exist_ok=True)
 
     # ---- data source ------------------------------------------------
-    # dataset_path comes from prepare_aime_dataset() as a host path;
-    # guidellm runs inside the container, so convert to the container-side path.
-    container_dataset_path = host_to_container(dataset_path) if dataset_path else None
-    if container_dataset_path:
+    # dataset_path is a container-native path from prepare_aime_dataset().
+    if dataset_path:
         data_args = [
-            f"--data {container_dataset_path}",
+            f"--data {dataset_path}",
             # 'prompt' and 'output_tokens_count' are guidellm defaults — no mapper needed.
             # output_tokens_count maps to max_tokens in the completions request.
             "--data-samples -1",
@@ -85,13 +84,13 @@ def run_guidellm(
         *data_args,
         "--request-format /v1/completions",  # bypass chat template (critical for thinking models)
         *profile_args,
-        f"--output-dir {_OUT_TMP_CONTAINER}",
+        f"--output-dir {_OUT_TMP}",
         "--outputs json",
         "--outputs html",
         "--disable-console-interactive",
     ])
     proc = subprocess.Popen(
-        docker_exec_cmd(cmd),
+        ["bash", "--login", "-c", f"{_PREAMBLE} && {cmd}"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
     )
     with open(log_path, "w") as f:
@@ -105,7 +104,7 @@ def run_guidellm(
         print(f"  guidellm exited with code {proc.returncode}", flush=True)
         return None
 
-    result_file = Path(_OUT_TMP_HOST) / "benchmarks.json"
+    result_file = _OUT_TMP / "benchmarks.json"
     if not result_file.exists():
         print("  guidellm result file not found", flush=True)
         return None
@@ -120,7 +119,7 @@ def copy_results(cfg_name: str, out_dir: Path) -> list[str]:
     Returns list of saved filenames.
     """
     saved = []
-    for src in sorted(Path(_OUT_TMP_HOST).iterdir()):
+    for src in sorted(_OUT_TMP.iterdir()):
         dest = out_dir / f"{cfg_name}_{src.name}"
         shutil.copy(src, dest)
         saved.append(dest.name)

@@ -44,9 +44,12 @@ Single-script benchmarking tool (`bench.py`) that runs guidellm against vLLM ser
   The patch fixes `delta.reasoning`/`delta.reasoning_content` detection in `ChatCompletionsRequestHandler.add_streaming_line()`.
 - **LLM server**: vLLM (Intel XPU backend, `intel/vllm:0.14.1-xpu` container)
 - **Hardware**: Intel XPU — `xpu-smi` for GPU monitoring
-- **Environment**: Runs from the **host machine**; all vLLM / guidellm / xpu-smi subprocess calls
-  are dispatched into `vllm-0.14` via `docker_exec_cmd()` from `guidellm_bench/docker.py`.
-  The container is started automatically by `ensure_container_running()` at the top of `main()`.
+- **Environment**: `bench.py` and `guidellm_bench/` run **inside** the `intel/vllm:0.14.1-xpu`
+  container. When invoked from the host, `bench.py` detects it is outside a container
+  (`/.dockerenv` absent) and automatically re-execs itself via `docker exec vllm-0.14`. All
+  subprocess calls (vLLM, guidellm, pkill) are made directly — no docker exec wrapping needed.
+  The only exception is `xpu-smi` GPU monitoring, which silently fails inside the container
+  (GpuMonitor degrades gracefully to empty readings).
 - **Volume mount**: Host `/root/dkorat/` → Container `/root/` — result files land on both
 
 ## Installation
@@ -59,7 +62,7 @@ bash install.sh
 bash install.sh --skip-xpu-smi
 ```
 
-The script does **four things** in order:
+The script does **three things** in order:
 
 ### 0. Ensure container running
 
@@ -80,7 +83,7 @@ apt-get install -y xpu-smi=1.2.42-79~24.04 libmetee4=4.3.1-115~u24.04
 apt-get install -y libmetee4=5.0.0-123~u24.04   # upgrade: binary links libmetee.so.5.0.0
 ```
 
-### 2. Python dependencies
+### 2. Python dependencies (inside container)
 
 Defined in `pyproject.toml`:
 - `datasets>=2.19.0` — downloads AIME 2024 prompts via HuggingFace
@@ -89,29 +92,32 @@ Defined in `pyproject.toml`:
   `git+https://github.com/danielkorat/guidellm.git@fix/thinking-model-ttft`
 
 ```bash
-pip install -e ".[guidellm]"
+pip install -e ".[guidellm]"  # runs inside the container
 ```
 
-### 3. Verification
+### 3. Verification (container only)
 
-Script imports `datasets`, `guidellm`, and `zoneinfo` to confirm everything resolved.
+Script imports `datasets`, `guidellm`, and `zoneinfo` inside the container to confirm everything resolved.
 
 ---
 
 ## Critical Rules & Corrections
 
-### 0. Host-machine Operation — ALL subprocesses use docker_exec_cmd()
-**RULE**: The project runs on the **host machine**. Every subprocess call that targets vLLM,
-guidellm, xpu-smi, or other container-resident tools MUST be wrapped with `docker_exec_cmd()`
-from `guidellm_bench/docker.py`. Never call these tools directly as bare commands.
+### 0. Execution Model — bench.py runs INSIDE the container
+**RULE**: `bench.py` and `guidellm_bench/` run inside `intel/vllm:0.14.1-xpu`. All subprocess
+calls (vLLM, guidellm, pkill, curl) are made **directly** — no `docker exec` wrapping.
+
 ```python
-from guidellm_bench.docker import docker_exec_cmd
-# CORRECT:
-subprocess.Popen(docker_exec_cmd("vllm serve ..."), ...)
-# WRONG:
-subprocess.Popen(["bash", "--login", "/tmp/vllm_server.sh"], ...)
+# bench.py re-exec guard (top of file, stdlib only):
+if not os.path.exists("/.dockerenv"):
+    _tty = ["-t"] if sys.stdout.isatty() else []
+    sys.exit(subprocess.call(["docker", "exec"] + _tty + [
+        "vllm-0.14", "python3", "/root/guidellm-bench/bench.py"
+    ] + sys.argv[1:]))
 ```
-`ensure_container_running()` is called once at the start of `main()` to start/create the container.
+
+`install.sh` installs all Python dependencies (datasets, guidellm, tzdata) **inside the container**
+only. No host-side `pip install` is needed.
 
 ### 1. Quantization Flag
 **RULE**: Never use `--quantization off` or `--quantization none`. Omit the flag entirely.
@@ -121,9 +127,9 @@ if cfg.quant:
 ```
 
 ### 2. oneAPI Environment
-**RULE**: The oneAPI preamble (`source /opt/intel/oneapi/setvars.sh --force`) is baked into
-`docker_exec_cmd()` automatically via `_PREAMBLE` in `docker.py`. Do NOT write `/tmp/*.sh` scripts
-and run them with `bash --login`. Use `docker_exec_cmd(inner_cmd)` directly.
+**RULE**: Every subprocess that invokes vLLM or guidellm must source oneAPI first via
+`bash --login -c "{_PREAMBLE} && {cmd}"` where `_PREAMBLE` is defined in `docker.py`.
+Do NOT write `/tmp/*.sh` scripts and run them separately.
 
 ### 3. Proxy / no_proxy
 **RULE**: Always export `no_proxy` and `NO_PROXY` inside the shell scripts to bypass Intel proxy for localhost connections.
@@ -166,7 +172,7 @@ guidellm benchmark \
 
 ### 8. AIME Dataset for Realistic Prompts
 **RULE**: Use `HuggingFaceH4/aime_2024` dataset (30 math problems) instead of synthetic random tokens.
-- Loaded once at startup via `prepare_aime_dataset()`, cached to `/tmp/aime_2024_v2.jsonl`.
+- Loaded once at startup via `prepare_aime_dataset()`, cached to `/root/aime_2024_v2.jsonl` (container path; volume-backed at host `/root/dkorat/aime_2024_v2.jsonl`).
 - Each JSONL row: `{"prompt": "<problem>", "output_tokens_count": 1024}`.
   - Column name MUST be `output_tokens_count` (guidellm default) — this maps to `max_tokens` in
     the `/v1/completions` request body. Using `output_tokens` instead results in `max_tokens` being
@@ -176,7 +182,9 @@ guidellm benchmark \
 - Falls back to synthetic tokens silently if the download fails (no internet).
 
 ### 9. GPU Monitoring via xpu-smi
-**RULE**: `GpuMonitor` runs `xpu-smi` **on the host machine** directly (plain `subprocess.run`, no `docker_exec_cmd`). xpu-smi does not work inside the container.
+**RULE**: `xpu-smi` does **not** work inside the container. Since `bench.py` now runs inside the
+container, `GpuMonitor` silently catches the failure and returns empty `[]` readings.
+GPU monitoring is best-effort; its absence does not affect benchmark correctness.
 
 ### 10. Health Check
 **RULE**: Use `curl -f` and check only `returncode == 0`. The `/health` endpoint returns HTTP 200 with an empty body — do NOT check stdout content.
@@ -212,7 +220,7 @@ out_dir = Path(results_dir) / ts
 | Module | Responsibility |
 |---|---|
 | `config.py` | `Config` dataclass, `FULL`/`SANITY` defaults, `skip_reason()` |
-| `docker.py` | `CONTAINER_NAME`, `docker_exec_cmd()`, `ensure_container_running()`, path helpers |
+| `docker.py` | `CONTAINER_NAME`, `_PREAMBLE`, `ensure_container_running()` (used by install.sh) |
 | `server.py` | vLLM server lifecycle: start, health-check, stop |
 | `monitor.py` | `GpuMonitor` background thread (xpu-smi) |
 | `dataset.py` | AIME 2024 dataset download and caching |
@@ -257,6 +265,7 @@ nohup ./bench.py > bench_full.log 2>&1 & echo $! > bench_full.pid
 |---|---|
 | `models` | `["Qwen/Qwen3-4B-Thinking-2507"]` |
 | `tp` | `[4]` |
+| `quant` | `["fp8"]` |
 | `num_prompts` | 4 |
 | `max_model_len` | 2048 |
 | `timeout_startup` | 600s |
@@ -309,7 +318,7 @@ bash guidellm_results/YYYYMMDD_HHMM/serve_dashboard.sh
 
 ---
 
-**Last Updated**: March 2, 2026 — xpu-smi runs on host directly (not via docker exec); migrated to host-machine operation with docker_exec_cmd()  
+**Last Updated**: March 2, 2026 — bench.py and guidellm_bench/ moved to run inside the container; re-exec guard auto-relaunches from host; all deps installed in container only; xpu-smi silently skipped (not available in container)  
 **Primary Maintainer**: Daniel Korat, Intel
 
 ---
@@ -328,8 +337,9 @@ Mistakes that happened once and must not repeat:
 | 6 | `SANITY.timeout_startup=180` too short — vLLM XPU JIT on first load takes >3 min | Use `timeout_startup=600` for both FULL and SANITY |
 | 7 | Log and pid files saved in repo root via `nohup ./bench.py > bench.log` | `bench.py` self-logs into `out_dir/bench.log`; just run `nohup ./bench.py &` (Rule 16) |
 | 8 | vLLM server hangs after XPU kernel registration warnings (`OperatorEntry.cpp:208 Warning: Overriding a previously registered kernel`) and never reaches `/health` | The XPU driver/runtime state is corrupted — **reboot the host**: `ssh root@10.75.137.163` then `reboot`. No amount of `pkill` or restart will fix this without a reboot. |
-| 9 | Named AIME JSONL column `output_tokens` — models generated only 16 tokens | Column must be `output_tokens_count` (guidellm default); `output_tokens` is not mapped to `max_tokens` in the completions body, leaving vLLM's default of 16. Cache path is `/root/dkorat/aime_2024_v2.jsonl` (host) = `/root/aime_2024_v2.jsonl` (container). |
+| 9 | Named AIME JSONL column `output_tokens` — models generated only 16 tokens | Column must be `output_tokens_count` (guidellm default); `output_tokens` is not mapped to `max_tokens` in the completions body, leaving vLLM's default of 16. Cache path is `/root/aime_2024_v2.jsonl` (container) = `/root/dkorat/aime_2024_v2.jsonl` (host, volume-backed). |
 | 10 | Dashboard showed 0 for TTFT/ITL/req/s/tok/s | `b['metrics']` aggregates are zero-filled in guidellm v0.6; must compute medians from `b['requests']['successful'][*]` per-request fields in `_extract_sweep_points`. |
 | 11 | gpt-oss-20b + tp=2 crashed with OOM (UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY), guidellm reported 30 "successful" requests with empty output | Added `gpt-oss-20b + tp<4` skip rule — model requires at least 4 GPUs |
-| 12 | Wrote subprocess calls that ran tools directly on the host (e.g. `pkill -f 'vllm serve'`) | All tool invocations (vLLM, guidellm, pkill) MUST use `docker_exec_cmd()` — the tools live inside the container, not on the host. **Exception: `xpu-smi` runs on the host directly** (does not work inside the container). |
-| 13 | Wrapped `xpu-smi` in `docker_exec_cmd()` | `xpu-smi` must run on the host as a plain subprocess — `subprocess.run(["xpu-smi", ...])`. |
+| 12 | Installed Python deps on the host with `pip install -e .` instead of inside the container | All deps (datasets, guidellm, tzdata) must be installed **inside the container** only. `install.sh` does `docker exec vllm-0.14 pip install -e ".[guidellm]"`. No host-side pip install. |
+| 13 | Wrote subprocess calls in server.py/benchmark.py that wrapped tools with `docker_exec_cmd()` | bench.py runs inside the container; call vLLM, guidellm, pkill directly as plain subprocesses with `bash --login -c "{_PREAMBLE} && {cmd}"`. |
+| 14 | Set `SANITY.quant=["none"]` — the only sanity config was immediately skipped by the Qwen3-4B+quant=none rule | SANITY must use `quant=["fp8"]` since Qwen3-4B + quant=none is always skipped. |

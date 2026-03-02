@@ -1,4 +1,8 @@
-"""vLLM server lifecycle: start, health-check, stop."""
+"""vLLM server lifecycle: start, health-check, stop.
+
+Runs inside the intel/vllm:0.14.1-xpu container. Subprocesses are called
+directly (no docker exec wrapper); oneAPI is sourced via bash --login -c.
+"""
 
 import subprocess
 import threading
@@ -7,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from .config import Config, PORT
-from .docker import CONTAINER_NAME, docker_exec_cmd
+from .docker import _PREAMBLE
 
 
 def _run_tee(cmd: list[str], log_path: Path) -> subprocess.Popen:
@@ -57,8 +61,12 @@ def build_vllm_cmd(cfg: Config, max_model_len: int) -> str:
 
 
 def start_server(cfg: Config, max_model_len: int, log_path: Path) -> subprocess.Popen:
-    """Start the vLLM server inside the Docker container."""
-    return _run_tee(docker_exec_cmd(build_vllm_cmd(cfg, max_model_len)), log_path)
+    """Start the vLLM server (runs directly inside the container)."""
+    vllm_cmd = build_vllm_cmd(cfg, max_model_len)
+    return _run_tee(
+        ["bash", "--login", "-c", f"{_PREAMBLE} && {vllm_cmd}"],
+        log_path,
+    )
 
 
 def wait_for_server(timeout: int) -> bool:
@@ -67,7 +75,7 @@ def wait_for_server(timeout: int) -> bool:
     time.sleep(10)
 
     r = subprocess.run(
-        docker_exec_cmd("pgrep -f 'vllm serve' | head -1"),
+        ["pgrep", "-f", "vllm serve"],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or not r.stdout.strip():
@@ -102,6 +110,6 @@ def stop_server(proc: Optional[subprocess.Popen] = None) -> None:
             proc.wait(timeout=10)
         except Exception:
             pass
-    for pat in ("'vllm serve'", "'vllm bench'", "guidellm"):
-        subprocess.run(docker_exec_cmd(f"pkill -f {pat}"), capture_output=True)
+    for pat in ("vllm serve", "vllm bench", "guidellm"):
+        subprocess.run(["pkill", "-f", pat], capture_output=True)
     time.sleep(5)
