@@ -8,5 +8,6 @@ bench_full.log
 bench_full.pid
 /tmp/
 nohup.out
+vllm_smoketest.log
 guidellm_bench.egg-info/
 .vscode/settings.json
