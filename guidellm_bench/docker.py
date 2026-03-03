@@ -91,3 +91,13 @@ def ensure_container_running() -> None:
         check=True,
     )
     print(f"  Container '{CONTAINER_NAME}' launched.", flush=True)
+
+    # Auto-install Python dependencies immediately so a fresh container is
+    # bench-ready without requiring a separate install.sh run.
+    print(f"  Installing Python dependencies in '{CONTAINER_NAME}'...", flush=True)
+    subprocess.run(
+        ["docker", "exec", CONTAINER_NAME,
+         "pip", "install", "--break-system-packages", "-q", "-e", "/root/guidellm-bench/.[guidellm]"],
+        check=True,
+    )
+    print(f"  Dependencies installed.", flush=True)

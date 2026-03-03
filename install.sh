@@ -121,7 +121,7 @@ info "Installing Python dependencies inside container..."
 # In the vLLM container pip is OS-managed (PEP 668); --break-system-packages is
 # required. Skipping pip self-upgrade (no RECORD file in the debian-managed pip).
 docker exec "${CONTAINER}" bash -c \
-  'pip install --quiet --break-system-packages -e "/root/guidellm-bench[guidellm]"'
+  'pip install --quiet --break-system-packages -e "/root/guidellm-bench/.[guidellm]"'
 
 # =============================================================================
 # 4. Verify imports (container only)

@@ -150,7 +150,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _ensure_guidellm_installed() -> None:
+    """Safety-net: install guidellm if missing (happens on a fresh container)."""
+    r = subprocess.run(["python3", "-c", "import guidellm"], capture_output=True)
+    if r.returncode != 0:
+        print(
+            "  guidellm not found — installing now (fresh container?). "
+            "This takes ~30s and will not repeat on subsequent runs.",
+            flush=True,
+        )
+        subprocess.run(
+            ["pip", "install", "--break-system-packages", "-q", "-e", ".[guidellm]"],
+            check=True,
+            cwd="/root/guidellm-bench",
+        )
+        print("  guidellm installed.", flush=True)
+
+
 def main() -> None:
+    _ensure_guidellm_installed()
     args = build_arg_parser().parse_args()
     D = SANITY if args.sanity else FULL
 

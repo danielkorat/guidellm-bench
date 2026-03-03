@@ -128,7 +128,7 @@ guidellm-bench/
 │   ├── config.py                 # Config dataclass, defaults, skip rules
 │   ├── docker.py                 # Container lifecycle: ensure_container_running, docker_exec_cmd
 │   ├── server.py                 # vLLM server lifecycle
-│   ├── monitor.py                # GpuMonitor (xpu-smi background thread)
+│   ├── monitor.py                # GpuMonitor no-op stub (xpu-smi not used at runtime)
 │   ├── dataset.py                # AIME 2024 dataset preparation
 │   ├── benchmark.py              # guidellm benchmark runner
 │   └── dashboard.py              # Interactive HTML dashboard builder
@@ -155,7 +155,7 @@ bash results/YYYYMMDD_HHMM/serve_dashboard.sh
 - **TTFT** (Time to First Token, ms)
 - **ITL** (Inter-Token Latency, ms)
 - **Throughput** (req/s and tok/s)
-- **Peak GPU Memory Used** (MiB, all devices) — `xpu-smi` is invoked on the **host machine** directly (not inside the container; it does not work there)
+- **Model Weights Memory (GiB/GPU)** — parsed directly from the vLLM server log (`parse_model_mem_gib()`); `xpu-smi` is NOT used at runtime (enters uninterruptible D-state when the GPU is active)
 - Per-config GPU utilisation and memory time-series charts
 
 ## Rebuild Dashboard from Partial Results

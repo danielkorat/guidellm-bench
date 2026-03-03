@@ -18,7 +18,7 @@ Benchmarking tool (`bench.py` entry point + `guidellm_bench/` package) that runs
 │   ├── config.py                 # Config dataclass, FULL/SANITY defaults, skip_reason()
 │   ├── docker.py                 # CONTAINER_NAME, _PREAMBLE, ensure_container_running()
 │   ├── server.py                 # vLLM server lifecycle: start, health-check, stop
-│   ├── monitor.py                # GpuMonitor background thread (xpu-smi)
+│   ├── monitor.py                # GpuMonitor no-op stub (xpu-smi NOT used at runtime; see Rule 9)
 │   ├── dataset.py                # AIME 2024 dataset download and caching
 │   ├── benchmark.py              # run_guidellm() and copy_results()
 │   └── dashboard.py              # build_dashboard_html() and write_serve_script()
@@ -43,7 +43,7 @@ Benchmarking tool (`bench.py` entry point + `guidellm_bench/` package) that runs
   Fork: https://github.com/danielkorat/guidellm/tree/fix/thinking-model-ttft  
   The patch fixes `delta.reasoning`/`delta.reasoning_content` detection in `ChatCompletionsRequestHandler.add_streaming_line()`.
 - **LLM server**: vLLM (Intel XPU backend, `intel/llm-scaler-vllm:0.14.0-b8` container)
-- **Hardware**: Intel XPU — `xpu-smi` for GPU monitoring
+- **Hardware**: Intel XPU — GPU memory is parsed from the vLLM server log (`parse_model_mem_gib()`). `xpu-smi` is installed as a system tool (see Installation) but is **never called during benchmarks** — it enters uninterruptible D-state when the GPU is active (see Rule 9).
 - **Environment**: `bench.py` and `guidellm_bench/` run **inside** a Docker container. When
   invoked from the host, `bench.py` detects it is outside a container (`/.dockerenv` absent) and
   automatically re-execs itself via `docker exec` into `lsv-container` (`intel/llm-scaler-vllm:0.14.0-b8`).
@@ -92,8 +92,13 @@ Defined in `pyproject.toml`:
   `git+https://github.com/danielkorat/guidellm.git@fix/thinking-model-ttft`
 
 ```bash
-pip install -e ".[guidellm]"  # runs inside the container
+# NOTE: --break-system-packages is required (PEP 668 / externally-managed-environment)
+pip install --break-system-packages -e "/root/guidellm-bench/.[guidellm]"
 ```
+
+`install.sh` handles this via `docker exec lsv-container pip install --break-system-packages ...`.
+`ensure_container_running()` in `docker.py` auto-installs after creating a **new** container.
+`bench.py` runs a safety-net import check at startup and installs if missing.
 
 ### 3. Verification (container only)
 
@@ -413,7 +418,7 @@ bash results/YYYYMMDD_HHMM/serve_dashboard.sh
 
 ---
 
-**Last Updated**: March 3, 2026 — Rules 22+23 added (server_status.json server reuse; EP-only-for-MoE guard); proxy fix for curl health checks (Rule 21); proxy forwarded through docker exec; single container (lsv-container)  
+**Last Updated**: March 3, 2026 — Rules 22+23 added (server_status.json server reuse; EP-only-for-MoE guard); proxy fix for curl health checks (Rule 21); proxy forwarded through docker exec; single container (lsv-container); auto-install deps after fresh container creation; `--break-system-packages` documented (Lessons 22-24)  
 **Primary Maintainer**: Daniel Korat, Intel
 
 ---
@@ -445,3 +450,6 @@ Mistakes that happened once and must not repeat:
 | 19 | Renamed gitignored dirs (e.g. `guidellm_results/` → `results/`) by updating `.gitignore` only — the old directories were no longer ignored and got accidentally committed | When renaming gitignored dirs: (1) add the new name to `.gitignore`, (2) keep the old name too (both must be ignored until old dirs are gone), (3) run `git rm -r --cached <old_dir>` BEFORE committing to untrack any previously committed files |
 | 20 | Added `--expert-parallel-size N` to vLLM command — caused `unrecognized arguments` error | `intel/llm-scaler-vllm:0.14.0-b8` only supports `--enable-expert-parallel` (boolean flag). There is NO `--expert-parallel-size` parameter. `cfg.expert_parallel_size` is used as a boolean trigger only; emit `--enable-expert-parallel` with no value. |
 | 21 | Health-check curl routed through Intel proxy (http_proxy forwarded via docker exec -e) → all curl calls to localhost:8000 silently failed, keeping wait_for_server stuck forever | Always set `no_proxy=localhost,127.0.0.1,0.0.0.0` and `NO_PROXY=...` in the env dict passed to any subprocess that calls curl against localhost. Already done in `wait_for_server` via `env=dict(os.environ, no_proxy="...", NO_PROXY="...")`. |
+| 22 | `pip install -e ".[guidellm]"` inside container failed: "externally-managed-environment" (PEP 668) | `intel/llm-scaler-vllm:0.14.0-b8` uses a system-managed Python. Always pass `--break-system-packages` to pip inside this container. |
+| 23 | `pip install -e "/root/guidellm-bench[guidellm]"` — path missing `.` → installed the package but without the `[guidellm]` extra, so guidellm itself was not installed | Correct form is `pip install --break-system-packages -e "/root/guidellm-bench/.[guidellm]"` (note the `/./`). |
+| 24 | `docker run -e http_proxy="$PROXY"` where PROXY was set using `${http_proxy:-fallback}` in a non-login shell — the outer env var wasn't available to the script, resulting in an empty-proxy container | Always pass literal proxy values or verify the env var is set before using it as a docker -e argument. In `ensure_container_running()` this is handled with `os.environ.get("http_proxy", "http://proxy-dmz.intel.com:911/")`. |
