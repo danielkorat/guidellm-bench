@@ -1,0 +1,173 @@
+[W303 08:31:58.074498476 OperatorEntry.cpp:208] Warning: Warning only once for all operators,  other operators may also be overridden.
+  Overriding a previously registered kernel for the same operator and the same dispatch key
+  operator: aten::geometric_(Tensor(a!) self, float p, *, Generator? generator=None) -> Tensor(a!)
+    registered at /pytorch/build/aten/src/ATen/RegisterSchema.cpp:6
+  dispatch key: XPU
+  previous kernel: registered at /pytorch/aten/src/ATen/VmapModeRegistrations.cpp:36
+       new kernel: registered at /root/workspace/frameworks.ai.pytorch.ipex-gpu/build/Release/csrc/gpu/csrc/gpu/xpu/ATen/RegisterXPU_0.cpp:172 (function operator())
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:03 [api_server.py:1272] vLLM API server version 0.14.1.dev0+gb17039bcc.d20260227
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:03 [utils.py:263] non-default args: {'model': 'Qwen/Qwen3-4B-Thinking-2507', 'max_model_len': 4096, 'quantization': 'fp8', 'enforce_eager': True, 'tensor_parallel_size': 4}
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:03 [arg_utils.py:603] HF_HUB_OFFLINE is True, replace model_id [Qwen/Qwen3-4B-Thinking-2507] to model_path [/root/.cache/huggingface/hub/models--Qwen--Qwen3-4B-Thinking-2507/snapshots/768f209d9ea81521153ed38c47d515654e938aea]
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:03 [model.py:531] Resolved architecture: Qwen3ForCausalLM
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:03 [model.py:1546] Using max model len 4096
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:03 [scheduler.py:229] Chunked prefill is enabled with max_num_batched_tokens=2048.
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:04 [vllm.py:636] Asynchronous scheduling is disabled.
+[0;36m(APIServer pid=696)[0;0m WARNING 03-03 08:32:04 [_logger.py:68] Enforce eager set, overriding optimization level to -O0
+[W303 08:32:09.693884120 OperatorEntry.cpp:208] Warning: Warning only once for all operators,  other operators may also be overridden.
+  Overriding a previously registered kernel for the same operator and the same dispatch key
+  operator: aten::geometric_(Tensor(a!) self, float p, *, Generator? generator=None) -> Tensor(a!)
+    registered at /pytorch/build/aten/src/ATen/RegisterSchema.cpp:6
+  dispatch key: XPU
+  previous kernel: registered at /pytorch/aten/src/ATen/VmapModeRegistrations.cpp:36
+       new kernel: registered at /root/workspace/frameworks.ai.pytorch.ipex-gpu/build/Release/csrc/gpu/csrc/gpu/xpu/ATen/RegisterXPU_0.cpp:172 (function operator())
+[0;36m(EngineCore_DP0 pid=1385)[0;0m INFO 03-03 08:32:13 [core.py:97] Initializing a V1 LLM engine (v0.14.1.dev0+gb17039bcc.d20260227) with config: model='/root/.cache/huggingface/hub/models--Qwen--Qwen3-4B-Thinking-2507/snapshots/768f209d9ea81521153ed38c47d515654e938aea', speculative_config=None, tokenizer='/root/.cache/huggingface/hub/models--Qwen--Qwen3-4B-Thinking-2507/snapshots/768f209d9ea81521153ed38c47d515654e938aea', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=4096, download_dir=None, load_format=auto, tensor_parallel_size=4, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=True, quantization=fp8, enforce_eager=True, enable_return_routed_experts=False, kv_cache_dtype=auto, device_config=xpu, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False, enable_mfu_metrics=False, enable_mm_processor_stats=False, enable_logging_iteration_details=False), seed=0, served_model_name=/root/.cache/huggingface/hub/models--Qwen--Qwen3-4B-Thinking-2507/snapshots/768f209d9ea81521153ed38c47d515654e938aea, enable_prefix_caching=True, enable_chunked_prefill=True, pooler_config=None, compilation_config={'level': None, 'mode': <CompilationMode.NONE: 0>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['all'], 'splitting_ops': [], 'compile_mm_encoder': False, 'compile_sizes': [], 'compile_ranges_split_points': [2048], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.NONE: 0>, 'cudagraph_num_of_warmups': 0, 'cudagraph_capture_sizes': None, 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': False, 'fuse_attn_quant': False, 'eliminate_noops': False, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False}, 'max_cudagraph_capture_size': None, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': True}, 'local_cache_dir': None}
+[0;36m(EngineCore_DP0 pid=1385)[0;0m WARNING 03-03 08:32:13 [_logger.py:68] Reducing Torch parallelism from 64 threads to 1 to avoid unnecessary CPU contention. Set OMP_NUM_THREADS in the external environment to tune this value as needed.
+[W303 08:32:17.526131990 OperatorEntry.cpp:208] Warning: Warning only once for all operators,  other operators may also be overridden.
+  Overriding a previously registered kernel for the same operator and the same dispatch key
+  operator: aten::geometric_(Tensor(a!) self, float p, *, Generator? generator=None) -> Tensor(a!)
+    registered at /pytorch/build/aten/src/ATen/RegisterSchema.cpp:6
+  dispatch key: XPU
+  previous kernel: registered at /pytorch/aten/src/ATen/VmapModeRegistrations.cpp:36
+       new kernel: registered at /root/workspace/frameworks.ai.pytorch.ipex-gpu/build/Release/csrc/gpu/csrc/gpu/xpu/ATen/RegisterXPU_0.cpp:172 (function operator())
+[W303 08:32:17.530374577 OperatorEntry.cpp:208] Warning: Warning only once for all operators,  other operators may also be overridden.
+  Overriding a previously registered kernel for the same operator and the same dispatch key
+  operator: aten::geometric_(Tensor(a!) self, float p, *, Generator? generator=None) -> Tensor(a!)
+    registered at /pytorch/build/aten/src/ATen/RegisterSchema.cpp:6
+  dispatch key: XPU
+  previous kernel: registered at /pytorch/aten/src/ATen/VmapModeRegistrations.cpp:36
+       new kernel: registered at /root/workspace/frameworks.ai.pytorch.ipex-gpu/build/Release/csrc/gpu/csrc/gpu/xpu/ATen/RegisterXPU_0.cpp:172 (function operator())
+[W303 08:32:18.652978120 OperatorEntry.cpp:208] Warning: Warning only once for all operators,  other operators may also be overridden.
+  Overriding a previously registered kernel for the same operator and the same dispatch key
+  operator: aten::geometric_(Tensor(a!) self, float p, *, Generator? generator=None) -> Tensor(a!)
+    registered at /pytorch/build/aten/src/ATen/RegisterSchema.cpp:6
+  dispatch key: XPU
+  previous kernel: registered at /pytorch/aten/src/ATen/VmapModeRegistrations.cpp:36
+       new kernel: registered at /root/workspace/frameworks.ai.pytorch.ipex-gpu/build/Release/csrc/gpu/csrc/gpu/xpu/ATen/RegisterXPU_0.cpp:172 (function operator())
+[W303 08:32:18.191452292 OperatorEntry.cpp:208] Warning: Warning only once for all operators,  other operators may also be overridden.
+  Overriding a previously registered kernel for the same operator and the same dispatch key
+  operator: aten::geometric_(Tensor(a!) self, float p, *, Generator? generator=None) -> Tensor(a!)
+    registered at /pytorch/build/aten/src/ATen/RegisterSchema.cpp:6
+  dispatch key: XPU
+  previous kernel: registered at /pytorch/aten/src/ATen/VmapModeRegistrations.cpp:36
+       new kernel: registered at /root/workspace/frameworks.ai.pytorch.ipex-gpu/build/Release/csrc/gpu/csrc/gpu/xpu/ATen/RegisterXPU_0.cpp:172 (function operator())
+INFO 03-03 08:32:23 [parallel_state.py:1214] world_size=4 rank=1 local_rank=1 distributed_init_method=tcp://127.0.0.1:46233 backend=xccl
+INFO 03-03 08:32:23 [parallel_state.py:1214] world_size=4 rank=2 local_rank=2 distributed_init_method=tcp://127.0.0.1:46233 backend=xccl
+INFO 03-03 08:32:24 [parallel_state.py:1214] world_size=4 rank=3 local_rank=3 distributed_init_method=tcp://127.0.0.1:46233 backend=xccl
+INFO 03-03 08:32:24 [parallel_state.py:1214] world_size=4 rank=0 local_rank=0 distributed_init_method=tcp://127.0.0.1:46233 backend=xccl
+INFO 03-03 08:32:25 [parallel_state.py:1425] rank 0 in world size 4 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank N/A
+INFO 03-03 08:32:25 [parallel_state.py:1425] rank 3 in world size 4 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 3, EP rank N/A
+2026:03:03-08:32:25:( 1647) |CCL_WARN| value of CCL_ATL_TRANSPORT changed to be ofi (default:mpi)
+2026:03:03-08:32:25:( 1647) |CCL_WARN| could not get local_idx/count from environment variables, trying to get them from ATL
+2026:03:03-08:32:25:( 1650) |CCL_WARN| value of CCL_ATL_TRANSPORT changed to be ofi (default:mpi)
+2026:03:03-08:32:25:( 1650) |CCL_WARN| could not get local_idx/count from environment variables, trying to get them from ATL
+INFO 03-03 08:32:25 [parallel_state.py:1425] rank 1 in world size 4 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 1, EP rank N/A
+INFO 03-03 08:32:25 [parallel_state.py:1425] rank 2 in world size 4 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 2, EP rank N/A
+2026:03:03-08:32:25:( 1648) |CCL_WARN| value of CCL_ATL_TRANSPORT changed to be ofi (default:mpi)
+2026:03:03-08:32:25:( 1648) |CCL_WARN| could not get local_idx/count from environment variables, trying to get them from ATL
+2026:03:03-08:32:25:( 1649) |CCL_WARN| value of CCL_ATL_TRANSPORT changed to be ofi (default:mpi)
+2026:03:03-08:32:25:( 1649) |CCL_WARN| could not get local_idx/count from environment variables, trying to get them from ATL
+2026:03:03-08:32:26:( 1650) |CCL_WARN| topology recognition shows PCIe connection between devices. If this is not correct, you can disable topology recognition, with CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK=0. This will assume XeLinks across devices
+2026:03:03-08:32:26:( 1647) |CCL_WARN| topology recognition shows PCIe connection between devices. If this is not correct, you can disable topology recognition, with CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK=0. This will assume XeLinks across devices
+2026:03:03-08:32:26:( 1648) |CCL_WARN| topology recognition shows PCIe connection between devices. If this is not correct, you can disable topology recognition, with CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK=0. This will assume XeLinks across devices
+2026:03:03-08:32:26:( 1649) |CCL_WARN| topology recognition shows PCIe connection between devices. If this is not correct, you can disable topology recognition, with CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK=0. This will assume XeLinks across devices
+[0;36m(Worker_TP0 pid=1647)[0;0m INFO 03-03 08:32:27 [gpu_model_runner.py:3811] Starting to load model /root/.cache/huggingface/hub/models--Qwen--Qwen3-4B-Thinking-2507/snapshots/768f209d9ea81521153ed38c47d515654e938aea...
+[0;36m(Worker_TP1 pid=1648)[0;0m INFO 03-03 08:32:28 [xpu.py:51] Setting VLLM_KV_CACHE_LAYOUT to 'NHD' for XPU; only NHD layout is supported by XPU attention kernels.
+[0;36m(Worker_TP1 pid=1648)[0;0m INFO 03-03 08:32:28 [xpu.py:77] Using Flash Attention backend.
+[0;36m(Worker_TP3 pid=1650)[0;0m INFO 03-03 08:32:28 [xpu.py:51] Setting VLLM_KV_CACHE_LAYOUT to 'NHD' for XPU; only NHD layout is supported by XPU attention kernels.
+[0;36m(Worker_TP3 pid=1650)[0;0m INFO 03-03 08:32:28 [xpu.py:77] Using Flash Attention backend.
+[0;36m(Worker_TP0 pid=1647)[0;0m INFO 03-03 08:32:28 [xpu.py:51] Setting VLLM_KV_CACHE_LAYOUT to 'NHD' for XPU; only NHD layout is supported by XPU attention kernels.
+[0;36m(Worker_TP0 pid=1647)[0;0m INFO 03-03 08:32:28 [xpu.py:77] Using Flash Attention backend.
+[0;36m(Worker_TP2 pid=1649)[0;0m INFO 03-03 08:32:28 [xpu.py:51] Setting VLLM_KV_CACHE_LAYOUT to 'NHD' for XPU; only NHD layout is supported by XPU attention kernels.
+[0;36m(Worker_TP2 pid=1649)[0;0m INFO 03-03 08:32:28 [xpu.py:77] Using Flash Attention backend.
+[0;36m(Worker_TP0 pid=1647)[0;0m Loading safetensors checkpoint shards:   0% Completed | 0/3 [00:00<?, ?it/s]
+[0;36m(Worker_TP0 pid=1647)[0;0m Loading safetensors checkpoint shards:  33% Completed | 1/3 [00:01<00:03,  1.96s/it]
+[0;36m(Worker_TP0 pid=1647)[0;0m Loading safetensors checkpoint shards:  67% Completed | 2/3 [00:04<00:02,  2.04s/it]
+[0;36m(Worker_TP0 pid=1647)[0;0m Loading safetensors checkpoint shards: 100% Completed | 3/3 [00:04<00:00,  1.16s/it]
+[0;36m(Worker_TP0 pid=1647)[0;0m Loading safetensors checkpoint shards: 100% Completed | 3/3 [00:04<00:00,  1.39s/it]
+[0;36m(Worker_TP0 pid=1647)[0;0m 
+[0;36m(Worker_TP0 pid=1647)[0;0m INFO 03-03 08:32:32 [default_loader.py:291] Loading weights took 4.16 seconds
+[0;36m(Worker_TP0 pid=1647)[0;0m INFO 03-03 08:32:33 [gpu_model_runner.py:3908] Model loading took 1.11 GiB memory and 5.524596 seconds
+[0;36m(EngineCore_DP0 pid=1385)[0;0m INFO 03-03 08:32:43 [kv_cache_utils.py:1308] GPU KV cache size: 530,688 tokens
+[0;36m(EngineCore_DP0 pid=1385)[0;0m INFO 03-03 08:32:43 [kv_cache_utils.py:1313] Maximum concurrency for 4,096 tokens per request: 129.56x
+[0;36m(Worker_TP1 pid=1648)[0;0m 
+[0;36m(Worker_TP1 pid=1648)[0;0m [Memory Profiling Analysis]
+[0;36m(Worker_TP1 pid=1648)[0;0m   > Peak Allocated (Real Need)  : 2.22 GB
+[0;36m(Worker_TP1 pid=1648)[0;0m   > Model memory usage          : 1.11 GB
+[0;36m(Worker_TP1 pid=1648)[0;0m   > Current Reserved (Footprint): 2.45 GB
+[0;36m(Worker_TP1 pid=1648)[0;0m   > Fragmentation (Wasted)      : 0.23 GB
+[0;36m(Worker_TP1 pid=1648)[0;0m INFO 03-03 08:32:43 [utils.py:189] `_KV_CACHE_LAYOUT_OVERRIDE` variable detected. Setting KV cache layout to NHD.
+[0;36m(Worker_TP2 pid=1649)[0;0m 
+[0;36m(Worker_TP2 pid=1649)[0;0m [Memory Profiling Analysis]
+[0;36m(Worker_TP2 pid=1649)[0;0m   > Peak Allocated (Real Need)  : 2.22 GB
+[0;36m(Worker_TP2 pid=1649)[0;0m   > Model memory usage          : 1.11 GB
+[0;36m(Worker_TP2 pid=1649)[0;0m   > Current Reserved (Footprint): 2.45 GB
+[0;36m(Worker_TP2 pid=1649)[0;0m   > Fragmentation (Wasted)      : 0.23 GB
+[0;36m(Worker_TP2 pid=1649)[0;0m INFO 03-03 08:32:43 [utils.py:189] `_KV_CACHE_LAYOUT_OVERRIDE` variable detected. Setting KV cache layout to NHD.
+[0;36m(Worker_TP3 pid=1650)[0;0m 
+[0;36m(Worker_TP3 pid=1650)[0;0m [Memory Profiling Analysis]
+[0;36m(Worker_TP3 pid=1650)[0;0m   > Peak Allocated (Real Need)  : 2.22 GB
+[0;36m(Worker_TP3 pid=1650)[0;0m   > Model memory usage          : 1.11 GB
+[0;36m(Worker_TP3 pid=1650)[0;0m   > Current Reserved (Footprint): 2.45 GB
+[0;36m(Worker_TP3 pid=1650)[0;0m   > Fragmentation (Wasted)      : 0.23 GB
+[0;36m(Worker_TP3 pid=1650)[0;0m INFO 03-03 08:32:43 [utils.py:189] `_KV_CACHE_LAYOUT_OVERRIDE` variable detected. Setting KV cache layout to NHD.
+[0;36m(Worker_TP0 pid=1647)[0;0m 
+[0;36m(Worker_TP0 pid=1647)[0;0m [Memory Profiling Analysis]
+[0;36m(Worker_TP0 pid=1647)[0;0m   > Peak Allocated (Real Need)  : 2.22 GB
+[0;36m(Worker_TP0 pid=1647)[0;0m   > Model memory usage          : 1.11 GB
+[0;36m(Worker_TP0 pid=1647)[0;0m   > Current Reserved (Footprint): 2.45 GB
+[0;36m(Worker_TP0 pid=1647)[0;0m   > Fragmentation (Wasted)      : 0.23 GB
+[0;36m(Worker_TP0 pid=1647)[0;0m INFO 03-03 08:32:43 [utils.py:189] `_KV_CACHE_LAYOUT_OVERRIDE` variable detected. Setting KV cache layout to NHD.
+[0;36m(EngineCore_DP0 pid=1385)[0;0m INFO 03-03 08:32:44 [core.py:273] init engine (profile, create kv cache, warmup model) took 10.46 seconds
+[0;36m(EngineCore_DP0 pid=1385)[0;0m INFO 03-03 08:32:45 [vllm.py:636] Asynchronous scheduling is disabled.
+[0;36m(EngineCore_DP0 pid=1385)[0;0m WARNING 03-03 08:32:45 [_logger.py:68] Inductor compilation was disabled by user settings, optimizations settings that are only active during inductor compilation will be ignored.
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [api_server.py:1014] Supported tasks: ['generate']
+[0;36m(APIServer pid=696)[0;0m WARNING 03-03 08:32:45 [logger.py:147] Default sampling parameters have been overridden by the model's Hugging Face generation config recommended from the model creator. If this is not intended, please relaunch vLLM instance with `--generation-config vllm`.
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [serving_responses.py:224] Using default chat sampling params from model: {'temperature': 0.6, 'top_k': 20, 'top_p': 0.95}
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [serving_chat.py:146] Using default chat sampling params from model: {'temperature': 0.6, 'top_k': 20, 'top_p': 0.95}
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [serving_chat.py:182] Warming up chat template processing...
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [chat_utils.py:599] Detected the chat template content format to be 'string'. You can set `--chat-template-content-format` to override this.
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [serving_chat.py:218] Chat template warmup completed in 423.7ms
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [serving_completion.py:78] Using default completion sampling params from model: {'temperature': 0.6, 'top_k': 20, 'top_p': 0.95}
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [serving_chat.py:146] Using default chat sampling params from model: {'temperature': 0.6, 'top_k': 20, 'top_p': 0.95}
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [api_server.py:1346] Starting vLLM API server 0 on http://0.0.0.0:8000
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:38] Available routes are:
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /openapi.json, Methods: GET, HEAD
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /docs, Methods: GET, HEAD
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /docs/oauth2-redirect, Methods: GET, HEAD
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /redoc, Methods: GET, HEAD
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /scale_elastic_ep, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /is_scaling_elastic_ep, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /tokenize, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /detokenize, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /inference/v1/generate, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /pause, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /resume, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /is_paused, Methods: GET
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /metrics, Methods: GET
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /health, Methods: GET
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /load, Methods: GET
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /v1/models, Methods: GET
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /version, Methods: GET
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /v1/responses, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /v1/responses/{response_id}, Methods: GET
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /v1/responses/{response_id}/cancel, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /v1/messages, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /v1/chat/completions, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /v1/completions, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /v1/audio/transcriptions, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /v1/audio/translations, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /ping, Methods: GET
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /ping, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /invocations, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /classify, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /v1/embeddings, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /score, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /v1/score, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /rerank, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /v1/rerank, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /v2/rerank, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO 03-03 08:32:45 [launcher.py:46] Route: /pooling, Methods: POST
+[0;36m(APIServer pid=696)[0;0m INFO:     Started server process [696]
+[0;36m(APIServer pid=696)[0;0m INFO:     Waiting for application startup.
+[0;36m(APIServer pid=696)[0;0m INFO:     Application startup complete.
+[0;36m(APIServer pid=696)[0;0m INFO:     127.0.0.1:36884 - "GET /health HTTP/1.1" 200 OK

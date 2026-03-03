@@ -1,6 +1,6 @@
 """guidellm benchmark runner.
 
-Runs inside the intel/vllm:0.14.1-xpu container. All paths are
+Runs inside lsv-container (intel/llm-scaler-vllm:0.14.0-b8). All paths are
 container-native; no docker exec wrapping needed.
 """
 

@@ -3,15 +3,13 @@
 guidellm-bench — entry point.
 
 Usage:
-    ./bench.py               # full benchmark matrix  (intel/vllm:0.14.1-xpu)
+    ./bench.py               # full benchmark matrix
     ./bench.py --sanity      # single config, fast smoke-test
-    ./bench.py --ep          # Expert Parallelism variants (intel/llm-scaler-vllm:0.14.0-b8)
+    ./bench.py --ep          # include Expert Parallelism variants
     ./bench.py --models openai/gpt-oss-20b --tp 4 --quantization none
 
-When called from the host this script auto-relaunches itself inside the
-appropriate container via 'docker exec':
-  - default runs: vllm-0.14  (intel/vllm:0.14.1-xpu)
-  - --ep runs:    lsv-container (intel/llm-scaler-vllm:0.14.0-b8)
+When called from the host this script auto-relaunches itself inside
+lsv-container (intel/llm-scaler-vllm:0.14.0-b8) via 'docker exec'.
 See guidellm_bench/ for implementation details.
 """
 
@@ -26,11 +24,18 @@ import time
 
 if not os.path.exists("/.dockerenv"):
     _tty = ["-t"] if sys.stdout.isatty() else []
-    _container = "lsv-container" if "--ep" in sys.argv else "vllm-0.14"
+    # Forward host proxy env vars into the container so HuggingFace / Intel
+    # registries remain reachable regardless of how the container was created.
+    _proxy_args: list[str] = []
+    for _var in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
+        _val = os.environ.get(_var)
+        if _val:
+            _proxy_args += ["-e", f"{_var}={_val}"]
     _cmd = (
         ["docker", "exec", "-w", "/root/guidellm-bench"]
         + _tty
-        + [_container, "python3", "/root/guidellm-bench/bench.py"]
+        + _proxy_args
+        + ["lsv-container", "python3", "/root/guidellm-bench/bench.py"]
         + sys.argv[1:]
     )
     _rc = subprocess.call(_cmd)
@@ -221,7 +226,6 @@ def main() -> None:
                     configs.append(Config(model=model, tp=tp, quant=quant, eager=eager))
 
     # Expert Parallelism (EP) variants for MoE models — opt-in via --ep
-    # Requires intel/llm-scaler-vllm:0.14.0-b8+ (EP not in intel/vllm:0.14.1-xpu).
     if not args.sanity and args.ep:
         ep_configs = [
             # gpt-oss-20b: mxfp4 baked in (no quant), tp=4 with ep=4

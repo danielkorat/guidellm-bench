@@ -1,4 +1,4 @@
-"""Docker container helpers — launch intel/vllm:0.14.1-xpu.
+"""Docker container helpers — launch intel/llm-scaler-vllm:0.14.0-b8 (lsv-container).
 
 bench.py runs *inside* the container (auto-relaunched via the re-exec guard).
 This module is only used at install time (ensure_container_running) and to
@@ -13,15 +13,9 @@ import subprocess
 # Constants
 # ---------------------------------------------------------------------------
 
-CONTAINER_NAME = "vllm-0.14"
-DOCKER_IMAGE = "intel/vllm:0.14.1-xpu"
-
-# Expert Parallelism (EP) runs use the llm-scaler container (supports --enable-expert-parallel).
-# Start it with: docker run -td --privileged --net=host --device=/dev/dri \
-#   --name=lsv-container -v /root/dkorat/:/root/ --shm-size=32g \
-#   --entrypoint /bin/bash intel/llm-scaler-vllm:0.14.0-b8
-EP_CONTAINER_NAME = "lsv-container"
-EP_DOCKER_IMAGE   = "intel/llm-scaler-vllm:0.14.0-b8"
+# Single container for all runs (supports standard TP and Expert Parallelism).
+CONTAINER_NAME = "lsv-container"
+DOCKER_IMAGE   = "intel/llm-scaler-vllm:0.14.0-b8"
 
 # Volume mount: host /root/dkorat/ → container /root/
 HOST_ROOT = "/root/dkorat"
@@ -33,10 +27,7 @@ CONTAINER_ROOT = "/root"
 _PREAMBLE = (
     "source /opt/intel/oneapi/setvars.sh --force && "
     "export no_proxy=localhost,127.0.0.1,0.0.0.0 && "
-    "export NO_PROXY=localhost,127.0.0.1,0.0.0.0 && "
-    # Models are always pre-cached; disable HF hub network calls entirely so
-    # the server doesn't fail when the corporate proxy isn't set in the container.
-    "export HF_HUB_OFFLINE=1"
+    "export NO_PROXY=localhost,127.0.0.1,0.0.0.0"
 )
 
 
@@ -71,18 +62,21 @@ def ensure_container_running() -> None:
     print(f"  Launching container '{CONTAINER_NAME}' from image {DOCKER_IMAGE}...", flush=True)
     hf_token = os.environ.get("HF_READ_TOKEN", "")
     hf_cache = os.path.expanduser("~/.cache/huggingface")
+    # Inherit proxy from host so the container can reach HuggingFace / Intel registries.
+    http_proxy  = os.environ.get("http_proxy",  "http://proxy-dmz.intel.com:911/")
+    https_proxy = os.environ.get("https_proxy", "http://proxy-dmz.intel.com:912/")
 
     subprocess.run(
         [
             "docker", "run", "-t", "-d",
-            "--shm-size", "10g",
+            "--shm-size", "32g",
             "--net=host",
             "--ipc=host",
             "--privileged",
-            "-e", "http_proxy=http://proxy-dmz.intel.com:912",
-            "-e", "https_proxy=http://proxy-dmz.intel.com:912",
-            "-e", "HTTP_PROXY=http://proxy-dmz.intel.com:912",
-            "-e", "HTTPS_PROXY=http://proxy-dmz.intel.com:912",
+            "-e", f"http_proxy={http_proxy}",
+            "-e", f"https_proxy={https_proxy}",
+            "-e", f"HTTP_PROXY={http_proxy}",
+            "-e", f"HTTPS_PROXY={https_proxy}",
             "-e", "no_proxy=localhost,127.0.0.1,0.0.0.0",
             "-e", "NO_PROXY=localhost,127.0.0.1,0.0.0.0",
             "-e", f"HF_TOKEN={hf_token}",

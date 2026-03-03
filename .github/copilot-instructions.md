@@ -42,13 +42,12 @@ Benchmarking tool (`bench.py` entry point + `guidellm_bench/` package) that runs
   ```
   Fork: https://github.com/danielkorat/guidellm/tree/fix/thinking-model-ttft  
   The patch fixes `delta.reasoning`/`delta.reasoning_content` detection in `ChatCompletionsRequestHandler.add_streaming_line()`.
-- **LLM server**: vLLM (Intel XPU backend, `intel/vllm:0.14.1-xpu` container)
+- **LLM server**: vLLM (Intel XPU backend, `intel/llm-scaler-vllm:0.14.0-b8` container)
 - **Hardware**: Intel XPU — `xpu-smi` for GPU monitoring
 - **Environment**: `bench.py` and `guidellm_bench/` run **inside** a Docker container. When
   invoked from the host, `bench.py` detects it is outside a container (`/.dockerenv` absent) and
-  automatically re-execs itself via `docker exec` into the appropriate container:
-  - **Default** (no `--ep`): `vllm-0.14` (`intel/vllm:0.14.1-xpu`)
-  - **With `--ep`**: `lsv-container` (`intel/llm-scaler-vllm:0.14.0-b8`) — required for Expert Parallelism
+  automatically re-execs itself via `docker exec` into `lsv-container` (`intel/llm-scaler-vllm:0.14.0-b8`).
+  Proxy env vars from the host are forwarded via `-e` flags so HuggingFace remains reachable.
 
   All subprocess calls (vLLM, guidellm, pkill) are made directly inside the container — no docker exec wrapping needed.
 - **Volume mount**: Host `/root/dkorat/` → Container `/root/` — result files land on both
@@ -67,8 +66,8 @@ The script does **three things** in order:
 
 ### 0. Ensure container running
 
-Inspects `vllm-0.14`. If missing, runs `docker run` with the standard args from `reference.sh`
-(volume `/root/dkorat/:/root`, `--net=host`, `--privileged`, etc.).
+Inspects `lsv-container`. If missing, runs `docker run` with proxy env vars inherited from
+the host (volume `/root/dkorat/:/root`, `--net=host`, `--privileged`, `--shm-size 32g`, etc.).
 
 ### 1. xpu-smi (system package — inside container, Ubuntu 24.04 noble)
 
@@ -105,21 +104,29 @@ Script imports `datasets`, `guidellm`, and `zoneinfo` inside the container to co
 ## Critical Rules & Corrections
 
 ### 0. Execution Model — bench.py runs INSIDE the container
-**RULE**: `bench.py` and `guidellm_bench/` run inside a Docker container. The re-exec guard selects the container based on `--ep` presence in `sys.argv`:
-- **Default**: `vllm-0.14` (`intel/vllm:0.14.1-xpu`)
-- **`--ep`**: `lsv-container` (`intel/llm-scaler-vllm:0.14.0-b8`)
-
-All subprocess calls (vLLM, guidellm, pkill, curl) are made **directly** — no `docker exec` wrapping.
+**RULE**: `bench.py` and `guidellm_bench/` run inside `lsv-container` (`intel/llm-scaler-vllm:0.14.0-b8`).
+The re-exec guard always targets `lsv-container` and forwards host proxy env vars via `-e`:
 
 ```python
 # bench.py re-exec guard (top of file, stdlib only):
 if not os.path.exists("/.dockerenv"):
     _tty = ["-t"] if sys.stdout.isatty() else []
-    _container = "lsv-container" if "--ep" in sys.argv else "vllm-0.14"
-    sys.exit(subprocess.call(["docker", "exec", "-w", "/root/guidellm-bench"] + _tty + [
-        _container, "python3", "/root/guidellm-bench/bench.py"
-    ] + sys.argv[1:]))
+    _proxy_args = []
+    for _var in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
+        _val = os.environ.get(_var)
+        if _val:
+            _proxy_args += ["-e", f"{_var}={_val}"]
+    _cmd = (["docker", "exec", "-w", "/root/guidellm-bench"]
+            + _tty + _proxy_args
+            + ["lsv-container", "python3", "/root/guidellm-bench/bench.py"]
+            + sys.argv[1:])
+    _rc = subprocess.call(_cmd)
+    if _rc == 42:
+        subprocess.call(["reboot"])
+    sys.exit(_rc)
 ```
+
+All subprocess calls (vLLM, guidellm, pkill, curl) are made **directly** — no `docker exec` wrapping.
 
 `install.sh` installs all Python dependencies (datasets, guidellm, tzdata) **inside the container**
 only. No host-side `pip install` is needed.
@@ -221,7 +228,7 @@ Config(model="openai/gpt-oss-20b",  tp=4, quant=None,  eager=True, expert_parall
 Config(model="Qwen/Qwen3-30B-A3B", tp=2, quant="fp8", eager=True, expert_parallel_size=2)
 Config(model="Qwen/Qwen3-30B-A3B", tp=4, quant="fp8", eager=True, expert_parallel_size=4)
 ```
-⚠️ **Requires `intel/llm-scaler-vllm:0.14.0-b8` or later** (EP not present in `intel/vllm:0.14.1-xpu`).
+⚠️ **Requires `intel/llm-scaler-vllm:0.14.0-b8` or later** (the single container used for all runs).
 The vLLM flags emitted are: `--enable-expert-parallel --expert-parallel-size N`.
 EP is meaningful only for MoE models (gpt-oss-20b, Qwen3-30B-A3B): it distributes experts across GPUs, reducing per-expert memory and improving throughput.
 
@@ -405,10 +412,10 @@ Mistakes that happened once and must not repeat:
 | 9 | Named AIME JSONL column `output_tokens` — models generated only 16 tokens | Column must be `output_tokens_count` (guidellm default); `output_tokens` is not mapped to `max_tokens` in the completions body, leaving vLLM's default of 16. Cache path is `/root/aime_2024_v2.jsonl` (container) = `/root/dkorat/aime_2024_v2.jsonl` (host, volume-backed). |
 | 10 | Dashboard showed 0 for TTFT/ITL/req/s/tok/s | `b['metrics']` aggregates are zero-filled in guidellm v0.6; must compute medians from `b['requests']['successful'][*]` per-request fields in `_extract_sweep_points`. |
 | 11 | gpt-oss-20b + tp=2 crashed with OOM (UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY), guidellm reported 30 "successful" requests with empty output | Added `gpt-oss-20b + tp<4` skip rule — model requires at least 4 GPUs |
-| 12 | Installed Python deps on the host with `pip install -e .` instead of inside the container | All deps (datasets, guidellm, tzdata) must be installed **inside the container** only. `install.sh` does `docker exec vllm-0.14 pip install -e ".[guidellm]"`. No host-side pip install. |
+| 12 | Installed Python deps on the host with `pip install -e .` instead of inside the container | All deps (datasets, guidellm, tzdata) must be installed **inside the container** only. `install.sh` does `docker exec lsv-container pip install -e ".[guidellm]"`. No host-side pip install. |
 | 13 | Wrote subprocess calls in server.py/benchmark.py that wrapped tools with `docker_exec_cmd()` | bench.py runs inside the container; call vLLM, guidellm, pkill directly as plain subprocesses with `bash --login -c "{_PREAMBLE} && {cmd}"`. |
 | 14 | Set `SANITY.quant=["none"]` — the only sanity config was immediately skipped by the Qwen3-4B+quant=none rule | SANITY must use `quant=["fp8"]` since Qwen3-4B + quant=none is always skipped. |
-| 15 | `docker exec` re-exec guard omitted `-w /root/guidellm-bench` — container default cwd is `/workspace/vllm/`, so results landed there instead of the volume-mounted `/root/` | Always pass `-w /root/guidellm-bench` in the re-exec: `docker exec -w /root/guidellm-bench vllm-0.14 python3 /root/guidellm-bench/bench.py` |
+| 15 | `docker exec` re-exec guard omitted `-w /root/guidellm-bench` — container default cwd is `/workspace/vllm/`, so results landed there instead of the volume-mounted `/root/` | Always pass `-w /root/guidellm-bench` in the re-exec: `docker exec -w /root/guidellm-bench lsv-container python3 /root/guidellm-bench/bench.py` |
 | 16 | `_serve_dashboard` used `lsof` to kill the old server, but `lsof` is not available inside the vLLM container — the kill silently no-oped and the new http.server failed to bind, leaving the old (sanity) dashboard visible | Use `fuser -k {port}/tcp 2>/dev/null || lsof -ti tcp:{port} ...` — `fuser` is available in the container |
 | 17 | `pkill -f guidellm` in `stop_server()` killed bench.py itself — `/root/guidellm-bench/bench.py` contains "guidellm" in the path | Use `pkill -f 'guidellm benchmark'` to match only the guidellm CLI invocation, not bench.py's own path. |
 | 18 | Used `xpu-smi dump` to monitor GPU memory during benchmarks — processes entered `D` (uninterruptible sleep) state when the GPU was in use and could not be killed even with `SIGKILL` | Never call `xpu-smi` while vLLM holds the GPU. Use `parse_model_mem_gib()` to read GPU weight memory from the vLLM server log instead. |

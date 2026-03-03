@@ -2,13 +2,13 @@
 
 Automated benchmarking for **Intel XPU vLLM** inference using [guidellm](https://github.com/vllm-project/guidellm). Runs a matrix of model × tensor-parallelism × quantization configurations and produces an interactive HTML dashboard with latency, throughput, and GPU memory metrics.
 
-**All commands run from the host machine.** The tool automatically launches or reuses the `intel/vllm:0.14.1-xpu` Docker container and dispatches every vLLM / guidellm / xpu-smi invocation inside it via `docker exec`.
+**All commands run from the host machine.** The tool automatically launches or reuses the `lsv-container` Docker container (`intel/llm-scaler-vllm:0.14.0-b8`) and dispatches every vLLM / guidellm invocation inside it via `docker exec`.
 
 ## Requirements
 
 - Host machine running Ubuntu 24.04 (noble) with Docker CLI available
 - Python ≥ 3.10 on the **host** (only for `bench.py` orchestration)
-- `intel/vllm:0.14.1-xpu` Docker image pulled (contains vLLM, guidellm will be installed, xpu-smi optional)
+- `intel/llm-scaler-vllm:0.14.0-b8` Docker image pulled (contains vLLM with Expert Parallelism support; guidellm will be installed, xpu-smi optional)
 - Intel XPU hardware with the Intel GPU noble unified apt repo pre-configured **inside** the container
 - Volume mount `/root/dkorat/` → `/root/` — `bench.py` writes result files here so they are visible on both host and container
 
@@ -32,23 +32,23 @@ The script does four things in order:
 
 ### 0. Ensure container is running
 
-The script inspects the `vllm-0.14` container. If it does not exist it runs:
+The script inspects the `lsv-container` container. If it does not exist it runs:
 
 ```bash
-docker run -t -d --shm-size 10g --net=host --ipc=host --privileged \
+docker run -t -d --shm-size 32g --net=host --ipc=host --privileged \
   -e http_proxy=... -e https_proxy=... \
   -e HF_TOKEN=${HF_READ_TOKEN} \
-  --name=vllm-0.14 \
+  --name=lsv-container \
   --device /dev/dri:/dev/dri \
   -v ~/.cache/huggingface:/root/.cache/huggingface \
   -v /dev/dri/by-path:/dev/dri/by-path \
   -v /root/dkorat/:/root \
-  --entrypoint= intel/vllm:0.14.1-xpu /bin/bash
+  --entrypoint= intel/llm-scaler-vllm:0.14.0-b8 /bin/bash
 ```
 
 ### 1. `xpu-smi` (system package — installed inside container)
 
-> **Note**: The Intel GPU noble unified repo must already be configured — it is pre-configured in `intel/vllm:0.14.1-xpu`.  
+> **Note**: The Intel GPU noble unified repo must already be configured — it is pre-configured in `intel/llm-scaler-vllm:0.14.0-b8`.  
 > **Do NOT** add the `jammy` (Ubuntu 22.04) Intel graphics repo — it causes a `libmetee` package conflict.
 
 A two-step `libmetee4` pinning strategy is required to avoid an apt solver conflict between `libmetee4` (Intel GPU repo) and `libmetee5` (kobuk PPA) which declares `Breaks: libmetee4`:
@@ -72,7 +72,7 @@ Defined in `pyproject.toml`:
 
 ```bash
 # (run from host) install inside container:
-docker exec vllm-0.14 pip install -e "/root/guidellm-bench[guidellm]"
+docker exec lsv-container pip install -e "/root/guidellm-bench[guidellm]"
 ```
 
 The patched guidellm fork: `git+https://github.com/danielkorat/guidellm.git@fix/thinking-model-ttft`  

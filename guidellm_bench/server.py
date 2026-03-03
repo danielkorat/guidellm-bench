@@ -1,6 +1,6 @@
 """vLLM server lifecycle: start, health-check, stop.
 
-Runs inside the intel/vllm:0.14.1-xpu container. Subprocesses are called
+Runs inside lsv-container (intel/llm-scaler-vllm:0.14.0-b8). Subprocesses are called
 directly (no docker exec wrapper); oneAPI is sourced via bash --login -c.
 """
 

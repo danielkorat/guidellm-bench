@@ -2,7 +2,7 @@
 # =============================================================================
 # install.sh — full from-scratch setup for guidellm-bench
 #              Runs from the HOST machine; all container steps execute via
-#              'docker exec' into intel/vllm:0.14.1-xpu (container: vllm-0.14).
+#              'docker exec' into intel/llm-scaler-vllm:0.14.0-b8 (container: lsv-container).
 #
 # Usage:
 #   bash install.sh          # install everything (starts container if needed)
@@ -23,8 +23,8 @@ info()  { echo -e "${G}[install]${NC} $*"; }
 warn()  { echo -e "${Y}[warn]${NC}   $*"; }
 die()   { echo -e "${R}[error]${NC}  $*" >&2; exit 1; }
 
-CONTAINER=vllm-0.14
-IMAGE=intel/vllm:0.14.1-xpu
+CONTAINER=lsv-container
+IMAGE=intel/llm-scaler-vllm:0.14.0-b8
 HOST_ROOT=/root/dkorat
 
 # =============================================================================
@@ -34,6 +34,10 @@ info "Checking container '${CONTAINER}'..."
 
 running=$(docker inspect --format '{{.State.Running}}' "${CONTAINER}" 2>/dev/null || echo "missing")
 
+# Proxy: inherit from host or fall back to Intel defaults.
+HTTP_PROXY_VAL="${http_proxy:-http://proxy-dmz.intel.com:911/}"
+HTTPS_PROXY_VAL="${https_proxy:-http://proxy-dmz.intel.com:912/}"
+
 if [[ "$running" == "true" ]]; then
   info "Container already running ✓"
 elif [[ "$running" == "false" ]]; then
@@ -42,11 +46,11 @@ elif [[ "$running" == "false" ]]; then
 else
   info "Container not found — creating from ${IMAGE}..."
   HF_TOKEN="${HF_READ_TOKEN:-}"
-  docker run -t -d --shm-size 10g --net=host --ipc=host --privileged \
-    -e http_proxy=http://proxy-dmz.intel.com:912 \
-    -e https_proxy=http://proxy-dmz.intel.com:912 \
-    -e HTTP_PROXY=http://proxy-dmz.intel.com:912 \
-    -e HTTPS_PROXY=http://proxy-dmz.intel.com:912 \
+  docker run -t -d --shm-size 32g --net=host --ipc=host --privileged \
+    -e "http_proxy=${HTTP_PROXY_VAL}" \
+    -e "https_proxy=${HTTPS_PROXY_VAL}" \
+    -e "HTTP_PROXY=${HTTP_PROXY_VAL}" \
+    -e "HTTPS_PROXY=${HTTPS_PROXY_VAL}" \
     -e no_proxy=localhost,127.0.0.1,0.0.0.0 \
     -e NO_PROXY=localhost,127.0.0.1,0.0.0.0 \
     -e "HF_TOKEN=${HF_TOKEN}" \
