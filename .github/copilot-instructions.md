@@ -268,6 +268,39 @@ nohup ./bench.py &
 nohup ./bench.py > bench_full.log 2>&1 & echo $! > bench_full.pid
 ```
 
+### 18. XPU Kernel Registration Hang — Remove and Re-launch Container
+**RULE**: When the vLLM server log shows `OperatorEntry.cpp:208` kernel override warnings followed
+by repeated `Still waiting... Xs elapsed` health-check messages, the XPU driver state inside
+the container is corrupted and the server will **never** become healthy. `pkill` and container
+`restart` are not sufficient.
+
+**Recovery steps:**
+```bash
+# 1. Kill the stuck bench.py (check bench.pid in the output dir)
+kill $(cat guidellm_results/YYYYMMDD_HHMM/bench.pid 2>/dev/null) 2>/dev/null
+pkill -f bench.py
+
+# 2. Remove the corrupt container (use whichever is relevant)
+docker rm -f vllm-0.14    # for normal runs
+docker rm -f lsv-container  # for --ep runs
+
+# 3. Re-create the container (same args as original docker run)
+docker run -td --privileged --net=host --device=/dev/dri \
+  -v /dev/dri/by-path:/dev/dri/by-path \
+  -v /root/.cache/huggingface:/root/.cache/huggingface \
+  -v /root/dkorat/:/root/ --shm-size=10g \
+  --name=vllm-0.14 --entrypoint /bin/bash intel/vllm:0.14.1-xpu
+# (or lsv-container with intel/llm-scaler-vllm:0.14.0-b8 for --ep)
+
+# 4. Re-install Python deps inside the fresh container
+docker exec vllm-0.14 pip install --break-system-packages --no-deps -e /root/guidellm-bench
+
+# 5. Re-launch the run (use --resume to skip already-completed configs)
+nohup ./bench.py --resume &  # add --ep if applicable
+```
+
+Do NOT attempt host reboot unless container recreation also fails.
+
 ## Default Configuration
 
 ### Models
@@ -351,7 +384,7 @@ bash guidellm_results/YYYYMMDD_HHMM/serve_dashboard.sh
 
 ---
 
-**Last Updated**: March 2, 2026 — GPU memory from server log parsing (`parse_model_mem_gib`); xpu-smi disabled (hangs in D state when GPU busy); dashboard shows "Model Weights Memory (GiB)"; `_serve_dashboard` uses `fuser`  
+**Last Updated**: March 3, 2026 — Rule 18: XPU kernel registration hang → remove and re-launch container (not host reboot); Lesson 8 corrected accordingly  
 **Primary Maintainer**: Daniel Korat, Intel
 
 ---
@@ -369,7 +402,7 @@ Mistakes that happened once and must not repeat:
 | 5 | Tried to upgrade system pip inside container (`RECORD file not found`) | Skip `pip install --upgrade pip` inside the vLLM container; the bundled pip is sufficient |
 | 6 | `SANITY.timeout_startup=180` too short — vLLM XPU JIT on first load takes >3 min | Use `timeout_startup=600` for both FULL and SANITY |
 | 7 | Log and pid files saved in repo root via `nohup ./bench.py > bench.log` | `bench.py` self-logs into `out_dir/bench.log`; just run `nohup ./bench.py &` (Rule 16) |
-| 8 | vLLM server hangs after XPU kernel registration warnings (`OperatorEntry.cpp:208 Warning: Overriding a previously registered kernel`) and never reaches `/health` | The XPU driver/runtime state is corrupted — **reboot the host**: `ssh root@10.75.137.163` then `reboot`. No amount of `pkill` or restart will fix this without a reboot. |
+| 8 | vLLM server hangs after XPU kernel registration warnings (`OperatorEntry.cpp:208 Warning: Overriding a previously registered kernel`) followed by `Still waiting... Xs elapsed` and never reaches `/health` | XPU driver state inside the container is corrupted. **Remove and re-create the container** (`docker rm -f <container>` + `docker run ...`), re-install deps, then `./bench.py --resume`. See Rule 18. Reboot the host only if container recreation also fails. |
 | 9 | Named AIME JSONL column `output_tokens` — models generated only 16 tokens | Column must be `output_tokens_count` (guidellm default); `output_tokens` is not mapped to `max_tokens` in the completions body, leaving vLLM's default of 16. Cache path is `/root/aime_2024_v2.jsonl` (container) = `/root/dkorat/aime_2024_v2.jsonl` (host, volume-backed). |
 | 10 | Dashboard showed 0 for TTFT/ITL/req/s/tok/s | `b['metrics']` aggregates are zero-filled in guidellm v0.6; must compute medians from `b['requests']['successful'][*]` per-request fields in `_extract_sweep_points`. |
 | 11 | gpt-oss-20b + tp=2 crashed with OOM (UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY), guidellm reported 30 "successful" requests with empty output | Added `gpt-oss-20b + tp<4` skip rule — model requires at least 4 GPUs |
