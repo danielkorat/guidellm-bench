@@ -33,7 +33,10 @@ CONTAINER_ROOT = "/root"
 _PREAMBLE = (
     "source /opt/intel/oneapi/setvars.sh --force && "
     "export no_proxy=localhost,127.0.0.1,0.0.0.0 && "
-    "export NO_PROXY=localhost,127.0.0.1,0.0.0.0"
+    "export NO_PROXY=localhost,127.0.0.1,0.0.0.0 && "
+    # Models are always pre-cached; disable HF hub network calls entirely so
+    # the server doesn't fail when the corporate proxy isn't set in the container.
+    "export HF_HUB_OFFLINE=1"
 )
 
 
