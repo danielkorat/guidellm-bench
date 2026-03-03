@@ -229,7 +229,7 @@ Config(model="Qwen/Qwen3-30B-A3B", tp=2, quant="fp8", eager=True, expert_paralle
 Config(model="Qwen/Qwen3-30B-A3B", tp=4, quant="fp8", eager=True, expert_parallel_size=4)
 ```
 ⚠️ **Requires `intel/llm-scaler-vllm:0.14.0-b8` or later** (the single container used for all runs).
-The vLLM flags emitted are: `--enable-expert-parallel --expert-parallel-size N`.
+The vLLM flag emitted is: `--enable-expert-parallel` (boolean — **no** `--expert-parallel-size` parameter exists in this build).
 EP is meaningful only for MoE models (gpt-oss-20b, Qwen3-30B-A3B): it distributes experts across GPUs, reducing per-expert memory and improving throughput.
 
 ### 13. Timestamped Output Directories (Israel Time)
@@ -421,3 +421,4 @@ Mistakes that happened once and must not repeat:
 | 17 | `pkill -f guidellm` in `stop_server()` killed bench.py itself — `/root/guidellm-bench/bench.py` contains "guidellm" in the path | Use `pkill -f 'guidellm benchmark'` to match only the guidellm CLI invocation, not bench.py's own path. |
 | 18 | Used `xpu-smi dump` to monitor GPU memory during benchmarks — processes entered `D` (uninterruptible sleep) state when the GPU was in use and could not be killed even with `SIGKILL` | Never call `xpu-smi` while vLLM holds the GPU. Use `parse_model_mem_gib()` to read GPU weight memory from the vLLM server log instead. |
 | 19 | Renamed gitignored dirs (e.g. `guidellm_results/` → `results/`) by updating `.gitignore` only — the old directories were no longer ignored and got accidentally committed | When renaming gitignored dirs: (1) add the new name to `.gitignore`, (2) keep the old name too (both must be ignored until old dirs are gone), (3) run `git rm -r --cached <old_dir>` BEFORE committing to untrack any previously committed files |
+| 20 | Added `--expert-parallel-size N` to vLLM command — caused `unrecognized arguments` error | `intel/llm-scaler-vllm:0.14.0-b8` only supports `--enable-expert-parallel` (boolean flag). There is NO `--expert-parallel-size` parameter. `cfg.expert_parallel_size` is used as a boolean trigger only; emit `--enable-expert-parallel` with no value. |
