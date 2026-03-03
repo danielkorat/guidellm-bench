@@ -464,6 +464,8 @@ def main() -> None:
             current_server_proc = None
             global _current_server_proc
             _current_server_proc = None
+            proc = start_server(cfg, max_model_len, _server_log)
+            _current_server_proc = proc
             try:
                 ready = wait_for_server(timeout_startup, log_path=_server_log, proc=proc)
             except XpuKernelHangError as _hang:
