@@ -246,6 +246,8 @@ def main() -> None:
             Config(model="Qwen/Qwen3-30B-A3B",    tp=4, quant="fp8", eager=True, expert_parallel_size=4),
         ]
         for c in ep_configs:
+            if models and c.model not in models:
+                continue
             configs.append(c)
             print(f"  +    {c.model}  tp={c.tp}  quant={c.quant or 'none'}  ep={c.expert_parallel_size}  (EP via --ep)")
 
