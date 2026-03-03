@@ -7,7 +7,6 @@ from .server import (
     parse_model_mem_gib, XpuKernelHangError,
     write_server_status, server_is_reusable, SERVER_STATUS_PATH,
 )
-from .monitor import GpuMonitor
 from .dataset import prepare_aime_dataset
 from .benchmark import run_guidellm
 from .dashboard import build_dashboard_html
@@ -17,7 +16,6 @@ __all__ = [
     "ensure_container_running",
     "start_server", "wait_for_server", "stop_server", "build_vllm_cmd", "parse_model_mem_gib",
     "XpuKernelHangError", "write_server_status", "server_is_reusable", "SERVER_STATUS_PATH",
-    "GpuMonitor",
     "prepare_aime_dataset",
     "run_guidellm",
     "build_dashboard_html",

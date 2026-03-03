@@ -97,10 +97,6 @@ COLORS = [
     "#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f",
     "#edc948", "#b07aa1", "#ff9da7", "#9c755f", "#bab0ac",
 ]
-GPU_COLORS = [
-    "#e15759", "#4e79a7", "#f28e2b", "#76b7b2", "#59a14f",
-    "#edc948", "#b07aa1", "#ff9da7", "#9c755f", "#bab0ac",
-]
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +215,6 @@ def _extract_sweep_points(data: dict) -> list[dict]:
 def build_dashboard_html(
     out_dir: Path,
     succeeded: list[str],
-    gpu_data: Optional[dict] = None,
     model_mem_gib: Optional[Dict[str, float]] = None,
 ) -> Optional[Path]:
     """Build dashboard.html combining all per-config guidellm outputs.
@@ -227,9 +222,8 @@ def build_dashboard_html(
     Args:
         out_dir:       Directory containing `{name}_benchmarks.json` files.
         succeeded:     List of config names that completed successfully.
-        gpu_data:      Optional dict {cfg.name: [readings]} from GpuMonitor.
         model_mem_gib: Optional dict {cfg.name: per_gpu_weight_gib} parsed
-                       from vLLM server logs.  Used when gpu_data is absent.
+                       from vLLM server logs.
 
     Returns:
         Path to written dashboard.html, or None if no data found.
@@ -272,17 +266,8 @@ def build_dashboard_html(
         bar_tput_rps.append(peak.get("throughput_rps"))
         bar_tput_tps.append(peak.get("throughput_tps"))
 
-        gpu_readings = (gpu_data or {}).get(rec["name"], [])
-        if gpu_readings:
-            # xpu-smi readings available — sum peak MiB across devices, convert to GiB
-            by_dev: dict[str, float] = {}
-            for r in gpu_readings:
-                if r.get("mem_mib") is not None:
-                    by_dev[r["device"]] = max(by_dev.get(r["device"], 0.0), r["mem_mib"])
-            total_gib = sum(by_dev.values()) / 1024 if by_dev else None
-            bar_gpu_mem.append(round(total_gib, 2) if total_gib is not None else None)
-        elif (model_mem_gib or {}).get(rec["name"]):
-            # Server log fallback: per-GPU weight memory × number of GPUs
+        if (model_mem_gib or {}).get(rec["name"]):
+            # per-GPU weight memory from vLLM log × number of GPUs
             per_gpu = model_mem_gib[rec["name"]]  # type: ignore[index]
             tp_m = re.search(r'_tp(\d+)', rec["name"])
             tp = int(tp_m.group(1)) if tp_m else 1
@@ -340,31 +325,6 @@ def build_dashboard_html(
         def series_js(metric: str) -> str:
             return json.dumps([p.get(metric) for p in pts])
 
-        gpu_readings = (gpu_data or {}).get(rec["name"], [])
-        gpu_dev_mem: dict[str, list] = {}
-        gpu_dev_util: dict[str, list] = {}
-        for r in gpu_readings:
-            dev = r["device"]
-            if r.get("mem_mib") is not None:
-                gpu_dev_mem.setdefault(dev, []).append({"x": r["t"], "y": r["mem_mib"]})
-            if r.get("util") is not None:
-                gpu_dev_util.setdefault(dev, []).append({"x": r["t"], "y": r["util"]})
-
-        def gpu_ds_json(dev_map: dict) -> str:
-            return json.dumps([
-                {"label": f"GPU {dev}", "data": pts_list,
-                 "borderColor": GPU_COLORS[j % len(GPU_COLORS)],
-                 "backgroundColor": GPU_COLORS[j % len(GPU_COLORS)] + "33",
-                 "tension": 0.3, "pointRadius": 3, "fill": False}
-                for j, (dev, pts_list) in enumerate(sorted(dev_map.items()))
-            ])
-
-        has_gpu = bool(gpu_dev_mem)
-        gpu_canvas = lambda s, label: (
-            f'<canvas id="{cid(s)}"></canvas>' if has_gpu
-            else '<p class="text-muted small m-1">No xpu-smi data</p>'
-        )
-
         config_tabs_nav += (
             f'<li class="nav-item">'
             f'<a class="nav-link" data-bs-toggle="tab" href="#{tab_id}">{short}</a>'
@@ -385,8 +345,6 @@ def build_dashboard_html(
         <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">ITL (ms) vs Concurrency</div><div class="card-body p-2"><canvas id="{cid("itl")}"></canvas></div></div></div>
         <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Req/s vs Concurrency</div><div class="card-body p-2"><canvas id="{cid("rps")}"></canvas></div></div></div>
         <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Output tok/s vs Concurrency</div><div class="card-body p-2"><canvas id="{cid("tps")}"></canvas></div></div></div>
-        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">GPU Memory Used (MiB) over Time</div><div class="card-body p-2">{gpu_canvas("gmem", "Memory (MiB)")}</div></div></div>
-        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">GPU Utilization (%) over Time</div><div class="card-body p-2">{gpu_canvas("gutil", "Util (%)")}</div></div></div>
       </div>
     </div>
   </div>
@@ -417,25 +375,6 @@ def build_dashboard_html(
   cfgLine("{cid("itl")}",  {series_js("itl_ms")},         "ITL (ms)");
   cfgLine("{cid("rps")}",  {series_js("throughput_rps")}, "Req/s");
   cfgLine("{cid("tps")}",  {series_js("throughput_tps")}, "Output tok/s");
-  (function() {{
-    function gpuLine(id, datasets, yLabel) {{
-      const el = document.getElementById(id);
-      if (!el || !datasets.length) return;
-      new Chart(el, {{
-        type: 'line', data: {{ datasets }},
-        options: {{
-          parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-          scales: {{
-            x: {{ type: 'linear', title: {{ display: true, text: 'Elapsed (s)' }} }},
-            y: {{ beginAtZero: false, title: {{ display: true, text: yLabel }} }}
-          }},
-          plugins: {{ legend: {{ display: true, position: 'top' }} }}
-        }}
-      }});
-    }}
-    gpuLine("{cid("gmem")}",  {gpu_ds_json(gpu_dev_mem)},  "Memory (MiB)");
-    gpuLine("{cid("gutil")}", {gpu_ds_json(gpu_dev_util)}, "Util (%)");
-  }})();
 }})();
 </script>\n"""
 

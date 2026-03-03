@@ -64,7 +64,6 @@ if not os.path.exists("/.dockerenv"):
 # Normal imports — only reached when running inside the container.
 # ---------------------------------------------------------------------------
 import argparse
-import json
 import time
 from datetime import datetime
 from pathlib import Path
@@ -75,7 +74,6 @@ from guidellm_bench import (
     FULL,
     SANITY,
     Config,
-    GpuMonitor,
     SERVER_STATUS_PATH,
     XpuKernelHangError,
     build_dashboard_html,
@@ -231,14 +229,8 @@ def main() -> None:
     # Prepare AIME dataset once (cached; None → synthetic fallback)
     aime_path = prepare_aime_dataset(output_tokens=1024)
 
-    # When resuming, seed gpu_data from any existing monitor files
-    gpu_data: dict[str, list] = {}
     model_mem_gib: dict[str, float] = {}
     if args.resume is not None:
-        for p in out_dir.glob("*_gpu_monitor.json"):
-            cfg_name = p.stem.replace("_gpu_monitor", "")
-            with open(p) as f:
-                gpu_data[cfg_name] = json.load(f)
         # Re-parse model memory from existing server logs
         for p in out_dir.glob("logs/*_server.log"):
             cfg_name = p.stem.replace("_server", "")
@@ -341,9 +333,6 @@ def main() -> None:
             write_server_status(cfg, max_model_len, proc.pid, _server_log)
             current_server_proc = proc
 
-        monitor = GpuMonitor(interval=10)
-        monitor.start()
-
         data = run_guidellm(
             cfg, input_len, output_len, concurrency, num_prompts,
             log_dir / f"{cfg.name}_bench.log",
@@ -353,11 +342,6 @@ def main() -> None:
         # Server intentionally kept alive — reused by next config if possible.
         # Final teardown happens after all configs or before a config with a
         # different server requirement (handled above at the top of the loop).
-
-        gpu_readings = monitor.stop()
-        gpu_data[cfg.name] = gpu_readings
-        with open(out_dir / f"{cfg.name}_gpu_monitor.json", "w") as f:
-            json.dump(gpu_readings, f)
 
         if data is None:
             failed.append((cfg.name, "benchmark failed or produced no output"))
@@ -379,12 +363,16 @@ def main() -> None:
         print(f"\n  ✓  {cfg.name}  ({elapsed:.0f}s)  →  {', '.join(saved)}", flush=True)
         succeeded.append(cfg.name)
 
-    # Intentionally do NOT stop the server here.  server_status.json is left on
-    # disk so the next bench invocation can skip the ~90s restart if the config
-    # matches.  stop_server() is only called mid-run when a config change forces
-    # a different server (handled at the top of the loop above).
-    if SERVER_STATUS_PATH.exists():
-        print(f"\n  Server kept alive for reuse (server_status.json preserved).", flush=True)
+    # Server is intentionally left running so the next bench invocation can
+    # reuse it without a ~90s restart (server_status.json remains valid).
+    # Only stop if a run failed entirely and no server was started.
+    if current_server_proc is None and not server_is_reusable.__module__:
+        pass  # nothing to do
+    else:
+        srv_status = SERVER_STATUS_PATH.exists()
+        if srv_status:
+            print(f"\n  Server kept alive — server_status.json preserved for reuse.", flush=True)
+        # Do NOT call stop_server here; let the next run decide whether to reuse.
 
     # Summary
     print(f"\n{'='*60}")
@@ -396,7 +384,7 @@ def main() -> None:
     print(f"\nResults: {out_dir}")
 
     if succeeded:
-        build_dashboard_html(out_dir, succeeded, gpu_data=gpu_data, model_mem_gib=model_mem_gib)
+        build_dashboard_html(out_dir, succeeded, model_mem_gib=model_mem_gib)
         _serve_dashboard(out_dir)
 
 

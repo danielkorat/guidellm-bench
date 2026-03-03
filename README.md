@@ -91,7 +91,7 @@ The script imports `datasets`, `guidellm`, and `zoneinfo` inside the container t
 # PID  → sanity_results/YYYYMMDD_HHMM/bench.pid
 
 # Full benchmark suite in background
-nohup ./bench.py &
+nohup ./bench.py > /dev/null 2>&1 &
 # Logs → results/YYYYMMDD_HHMM/bench.log  (self-logged; no redirect needed)
 
 # Resume an interrupted run (skips configs with existing _benchmarks.json)
@@ -128,7 +128,6 @@ guidellm-bench/
 │   ├── config.py                 # Config dataclass, defaults, skip rules
 │   ├── docker.py                 # Container lifecycle: ensure_container_running, docker_exec_cmd
 │   ├── server.py                 # vLLM server lifecycle
-│   ├── monitor.py                # GpuMonitor no-op stub (xpu-smi not used at runtime)
 │   ├── dataset.py                # AIME 2024 dataset preparation
 │   ├── benchmark.py              # guidellm benchmark runner
 │   └── dashboard.py              # Interactive HTML dashboard builder
@@ -136,7 +135,6 @@ guidellm-bench/
     └── YYYYMMDD_HHMM/
         ├── {cfg}_benchmarks.json
         ├── {cfg}_benchmarks.html
-        ├── {cfg}_gpu_monitor.json
         ├── dashboard.html
         ├── serve_dashboard.sh
         └── logs/

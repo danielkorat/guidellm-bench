@@ -18,7 +18,6 @@ Benchmarking tool (`bench.py` entry point + `guidellm_bench/` package) that runs
 │   ├── config.py                 # Config dataclass, FULL/SANITY defaults, skip_reason()
 │   ├── docker.py                 # CONTAINER_NAME, _PREAMBLE, ensure_container_running()
 │   ├── server.py                 # vLLM server lifecycle: start, health-check, stop
-│   ├── monitor.py                # GpuMonitor no-op stub (xpu-smi NOT used at runtime; see Rule 9)
 │   ├── dataset.py                # AIME 2024 dataset download and caching
 │   ├── benchmark.py              # run_guidellm() and copy_results()
 │   └── dashboard.py              # build_dashboard_html() and write_serve_script()
@@ -26,7 +25,6 @@ Benchmarking tool (`bench.py` entry point + `guidellm_bench/` package) that runs
 │   └── YYYYMMDD_HHMM/
 │       ├── {cfg_name}_benchmarks.json
 │       ├── {cfg_name}_benchmarks.html
-│       ├── {cfg_name}_gpu_monitor.json
 │       ├── dashboard.html
 │       ├── serve_dashboard.sh
 │       └── logs/
@@ -210,9 +208,9 @@ Instead, parse GPU memory directly from the vLLM server log:
 # "Model loading took X.XX GiB memory"
 # Multiply by cfg.tp to get total across all devices.
 ```
-`GpuMonitor` in `monitor.py` is now a no-op stub (kept for backward compat).
-The dashboard "Model Weights Memory (GiB)" bar is populated from `model_mem_gib` dict
-passed to `build_dashboard_html()`.
+GPU memory is passed to `build_dashboard_html()` via `model_mem_gib` dict and renders
+the "Model Weights Memory (GiB)" bar chart. `monitor.py` and `GpuMonitor` have been
+removed entirely.
 
 ### 10. Health Check
 **RULE**: Use `curl -f` and check only `returncode == 0`. The `/health` endpoint returns HTTP 200 with an empty body — do NOT check stdout content.
@@ -263,7 +261,6 @@ out_dir = Path(results_dir) / ts
 | `config.py` | `Config` dataclass, `FULL`/`SANITY` defaults, `skip_reason()` |
 | `docker.py` | `CONTAINER_NAME`, `_PREAMBLE`, `ensure_container_running()` (used by install.sh) |
 | `server.py` | vLLM server lifecycle: start, health-check, stop |
-| `monitor.py` | `GpuMonitor` no-op stub (xpu-smi cannot be used — see Rule 9) |
 | `dataset.py` | AIME 2024 dataset download and caching |
 | `benchmark.py` | `run_guidellm()` and `copy_results()` |
 | `dashboard.py` | `build_dashboard_html()` and `write_serve_script()` |
@@ -275,7 +272,9 @@ Do **not** add new logic directly to `bench.py`.
 or a gitignored subdirectory of the repo.
 - Bench logs → `out_dir/bench.log` (self-logged by bench.py, see Rule 20)
 - guidellm scratch output → `out_dir/logs/.guidellm_out/` (benchmark.py creates per-run, auto-cleaned)
-- `nohup ./bench.py &` is sufficient — **do NOT** redirect to `/tmp/something.log`
+- Always use `nohup ./bench.py > /dev/null 2>&1 &` — **do NOT** redirect to `/tmp/something.log`
+  and **do NOT** omit the `> /dev/null 2>&1` redirect: without it, `nohup` creates `nohup.out`
+  at the repo root (Rule 25).
 
 ### 20. Result Directory Names
 **RULE**: Result directories are `results/` and `sanity_results/` (no `guidellm_` prefix).
@@ -284,11 +283,14 @@ Both are gitignored.
 results/YYYYMMDD_HHMM/        # full runs
 sanity_results/YYYYMMDD_HHMM/ # --sanity runs
 ```
-**RULE**: After creating `out_dir`, `bench.py` tees stdout/stderr into `out_dir/bench.log` and writes its PID to `out_dir/bench.pid`. No external redirect is needed.
+**RULE**: After creating `out_dir`, `bench.py` tees stdout/stderr into `out_dir/bench.log` and writes its PID to `out_dir/bench.pid`. No external redirect is needed, **but always add `> /dev/null 2>&1`** to prevent `nohup` from creating `nohup.out` at the repo root.
 ```bash
 # Correct:
-nohup ./bench.py &
+nohup ./bench.py > /dev/null 2>&1 &
 # Log and pid land in results/YYYYMMDD_HHMM/
+
+# WRONG (creates nohup.out at repo root):
+nohup ./bench.py &
 
 # WRONG (old pattern):
 nohup ./bench.py > bench_full.log 2>&1 & echo $! > bench_full.pid
@@ -377,7 +379,7 @@ _MOE_MODELS = frozenset({"openai/gpt-oss-20b", "openai/gpt-oss-120b", "Qwen/Qwen
 # PID  → ./sanity_results/YYYYMMDD_HHMM/bench.pid
 
 # Full benchmark suite (background — self-logs; no redirect needed)
-nohup ./bench.py &
+nohup ./bench.py > /dev/null 2>&1 &
 
 # Resume an interrupted run (skips configs with existing _benchmarks.json)
 ./bench.py --resume results/YYYYMMDD_HHMM
@@ -421,7 +423,7 @@ bash results/YYYYMMDD_HHMM/serve_dashboard.sh
 
 ---
 
-**Last Updated**: March 3, 2026 — Rules 22+23 added (server_status.json server reuse; EP-only-for-MoE guard); proxy fix for curl health checks (Rule 21); proxy forwarded through docker exec; single container (lsv-container); auto-install deps after fresh container creation; `--break-system-packages` documented (Lessons 22-24)  
+**Last Updated**: March 3, 2026 — Removed xpu-smi code entirely (`monitor.py`, `host_gpu_monitor.py`, `GpuMonitor`, `gpu_data`); added nohup.out fix (Rule 25 / Lesson 25); updated `.gitignore` to catch stray `/*.log`/`/*.pid`/`/*.out` at repo root
 **Primary Maintainer**: Daniel Korat, Intel
 
 ---
@@ -456,3 +458,4 @@ Mistakes that happened once and must not repeat:
 | 22 | `pip install -e ".[guidellm]"` inside container failed: "externally-managed-environment" (PEP 668) | `intel/llm-scaler-vllm:0.14.0-b8` uses a system-managed Python. Always pass `--break-system-packages` to pip inside this container. |
 | 23 | `pip install -e "/root/guidellm-bench[guidellm]"` — path missing `.` → installed the package but without the `[guidellm]` extra, so guidellm itself was not installed | Correct form is `pip install --break-system-packages -e "/root/guidellm-bench/.[guidellm]"` (note the `/./`). |
 | 24 | `docker run -e http_proxy="$PROXY"` where PROXY was set using `${http_proxy:-fallback}` in a non-login shell — the outer env var wasn't available to the script, resulting in an empty-proxy container | Always pass literal proxy values or verify the env var is set before using it as a docker -e argument. In `ensure_container_running()` this is handled with `os.environ.get("http_proxy", "http://proxy-dmz.intel.com:911/")`. |
+| 25 | `nohup ./bench.py &` without stdout redirect creates `nohup.out` at the repo root — even though bench.py tees via `_Tee`, `nohup` creates the file before Python starts. | Always run `nohup ./bench.py > /dev/null 2>&1 &`. bench.py self-logs everything to `out_dir/bench.log`, so `/dev/null` discards nothing important. See Rule 25 / Rule 19. |

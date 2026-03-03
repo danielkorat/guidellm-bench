@@ -11,3 +11,7 @@ nohup.out
 vllm_smoketest.log
 guidellm_bench.egg-info/
 .vscode/settings.json
+# Catch-all: stray log/pid files at repo root (bench.py self-logs to out_dir/)
+/*.log
+/*.pid
+/*.out
