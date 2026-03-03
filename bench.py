@@ -138,6 +138,25 @@ def _israel_now() -> datetime:
         return datetime.now(il_tz)
 
 
+# Module-level reference so the SIGTERM/SIGINT handler can call stop_server()
+# on the currently running vLLM process even when bench.py is killed externally.
+_current_server_proc = None
+
+
+def _signal_handler(signum, frame):
+    """Gracefully stop the vLLM server before exiting on SIGTERM/SIGINT.
+
+    Without this, an external kill of bench.py leaves the vLLM GPU workers
+    alive (or killed via SIGKILL), which causes xe-destroy-wq kernel threads
+    to get stuck in D-state, requiring a host reboot.
+    """
+    import signal
+    sig_name = "SIGINT" if signum == signal.SIGINT else "SIGTERM"
+    print(f"\n  {sig_name} received — shutting down server gracefully...", flush=True)
+    stop_server(_current_server_proc)
+    sys.exit(1)
+
+
 def _clean_incomplete_runs(results_dir: str) -> None:
     """Remove subdirs in *results_dir* that have zero *_benchmarks.json* files.
 
@@ -234,6 +253,10 @@ def _ensure_guidellm_installed() -> None:
 
 
 def main() -> None:
+    import signal as _signal
+    _signal.signal(_signal.SIGTERM, _signal_handler)
+    _signal.signal(_signal.SIGINT, _signal_handler)
+
     _ensure_guidellm_installed()
     args = build_arg_parser().parse_args()
     D = SANITY if args.sanity else FULL
@@ -308,7 +331,7 @@ def main() -> None:
         dataset_path = prepare_hf_dataset(
             args.data,
             output_tokens=1024,
-            max_samples=100,
+            max_samples=1000,
             cache_dir=out_dir / "datasets",
         )
         if dataset_path is None:
@@ -439,8 +462,8 @@ def main() -> None:
             # Stop whatever is currently running (previous config or stray).
             stop_server(current_server_proc)
             current_server_proc = None
-
-            proc = start_server(cfg, max_model_len, _server_log)
+            global _current_server_proc
+            _current_server_proc = None
             try:
                 ready = wait_for_server(timeout_startup, log_path=_server_log, proc=proc)
             except XpuKernelHangError as _hang:
@@ -454,12 +477,14 @@ def main() -> None:
             if not ready:
                 stop_server(proc)
                 current_server_proc = None
+                _current_server_proc = None
                 failed.append((cfg.name, "server startup failed"))
                 continue
 
             # Persist running server config so next iteration can skip restart.
             write_server_status(cfg, max_model_len, proc.pid, _server_log)
             current_server_proc = proc
+            _current_server_proc = proc
 
         data = run_guidellm(
             cfg, input_len, output_len, concurrency, num_prompts,

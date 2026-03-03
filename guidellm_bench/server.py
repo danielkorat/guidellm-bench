@@ -267,25 +267,70 @@ def wait_for_server(
     return False
 
 
+_GRACEFUL_TIMEOUT_S = 45  # seconds to wait for SIGTERM before escalating to SIGKILL
+
+
 def stop_server(proc: Optional[subprocess.Popen] = None) -> None:
-    """Kill *proc* (if given) and any lingering vllm / guidellm processes.
+    """Gracefully stop vLLM and any lingering benchmark processes.
+
+    Uses SIGTERM + wait before SIGKILL so the XPU driver has time to release
+    GPU device handles cleanly.  Abrupt SIGKILL leaves xe-destroy-wq kernel
+    workers stuck in D-state, requiring a host reboot to recover.
 
     Also removes SERVER_STATUS_PATH so the next config doesn't falsely detect
     a running server.
     """
+    print("  Stopping server (SIGTERM → wait → SIGKILL)...", flush=True)
+
+    # Step 1: SIGTERM the Popen handle (the bash --login wrapper)
     if proc:
         try:
-            proc.kill()
-            proc.wait(timeout=10)
+            proc.terminate()  # SIGTERM
         except Exception:
             pass
-    for pat in ("vllm serve", "vllm bench", "guidellm benchmark"):
-        subprocess.run(["pkill", "-f", pat], capture_output=True)
-    time.sleep(5)
+
+    # Step 2: SIGTERM all vllm/guidellm child processes
+    for pat in ("vllm serve", "vllm worker", "guidellm benchmark"):
+        subprocess.run(["pkill", "-TERM", "-f", pat], capture_output=True)
+
+    # Step 3: Wait up to _GRACEFUL_TIMEOUT_S for clean exit
+    deadline = time.monotonic() + _GRACEFUL_TIMEOUT_S
+    if proc:
+        remaining = deadline - time.monotonic()
+        try:
+            proc.wait(timeout=max(remaining, 1))
+        except subprocess.TimeoutExpired:
+            pass
+
+    # Poll until all target processes exit or deadline is reached
+    while time.monotonic() < deadline:
+        still_running = False
+        for pat in ("vllm serve", "vllm worker"):
+            r = subprocess.run(["pgrep", "-f", pat], capture_output=True)
+            if r.returncode == 0 and r.stdout.strip():
+                still_running = True
+                break
+        if not still_running:
+            break
+        time.sleep(2)
+    else:
+        # Deadline exceeded — escalate to SIGKILL as last resort
+        print("  WARNING: graceful shutdown timed out — sending SIGKILL", flush=True)
+        if proc:
+            try:
+                proc.kill()
+                proc.wait(timeout=10)
+            except Exception:
+                pass
+        for pat in ("vllm serve", "vllm worker", "guidellm benchmark"):
+            subprocess.run(["pkill", "-KILL", "-f", pat], capture_output=True)
+        time.sleep(3)
+
     try:
         SERVER_STATUS_PATH.unlink(missing_ok=True)
     except OSError:
         pass
+    print("  Server stopped.", flush=True)
 
 
 # ---------------------------------------------------------------------------

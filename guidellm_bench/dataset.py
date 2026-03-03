@@ -71,33 +71,41 @@ def _detect_text_column(dataset) -> Optional[str]:
     Strategy:
       1. Match against priority name list (first wins).
       2. Fall back to the string column with the longest median text length.
+
+    Note: the dataset must already be shuffled before calling this so that the
+    50-row sample is representative of the full length distribution.
     """
-    first_row = dataset[0] if len(dataset) > 0 else {}
+    sample_size = min(50, len(dataset))
+    sample = dataset.select(range(sample_size))
+    first_row = sample[0] if sample_size > 0 else {}
+
+    string_cols = [k for k, v in first_row.items() if isinstance(v, str)]
+    if not string_cols:
+        print("  WARNING: No string columns found in dataset", flush=True)
+        return None
+
+    # Compute median length per column for the fallback heuristic
+    medians: dict = {}
+    for col in string_cols:
+        texts = [row[col] or "" for row in sample]
+        lengths = sorted(len(t) for t in texts)
+        medians[col] = lengths[len(lengths) // 2] if lengths else 0
 
     # Priority name match (exact, case-insensitive)
     col_lower = {k.lower(): k for k in first_row.keys()}
     for candidate in _TEXT_COLUMN_CANDIDATES:
         if candidate in col_lower:
             chosen = col_lower[candidate]
-            print(f"  Auto-detected text column: '{chosen}' (priority match)", flush=True)
+            print(
+                f"  Auto-detected text column: '{chosen}' "
+                f"(priority match, shuffled-sample median {medians.get(chosen, 0):.0f} chars)",
+                flush=True,
+            )
             return chosen
 
-    # Heuristic: find string columns, sample up to 50 rows, pick longest median
-    string_cols = [k for k, v in first_row.items() if isinstance(v, str)]
-    if not string_cols:
-        print("  WARNING: No string columns found in dataset", flush=True)
-        return None
-
-    sample_size = min(50, len(dataset))
-    sample = dataset.select(range(sample_size))
-    best_col, best_med = None, 0.0
-    for col in string_cols:
-        texts = [row[col] or "" for row in sample]
-        lengths = sorted(len(t) for t in texts)
-        med = lengths[len(lengths) // 2] if lengths else 0.0
-        if med > best_med:
-            best_med, best_col = med, col
-
+    # Heuristic: pick string column with longest median text
+    best_col = max(string_cols, key=lambda c: medians.get(c, 0))
+    best_med = medians.get(best_col, 0)
     print(
         f"  Auto-detected text column: '{best_col}' "
         f"(longest median text: {best_med:.0f} chars)",
@@ -111,7 +119,7 @@ def prepare_hf_dataset(
     split: str = "train",
     text_column: Optional[str] = None,
     output_tokens: int = 1024,
-    max_samples: int = 100,
+    max_samples: int = 1000,
     cache_dir: Optional[Path] = None,
 ) -> Optional[str]:
     """Download any HuggingFace dataset and convert to guidellm JSONL.
@@ -121,7 +129,8 @@ def prepare_hf_dataset(
         split:        Dataset split to use (default: 'train').
         text_column:  Column name for the prompt text. Auto-detected if None.
         output_tokens: Value written to 'output_tokens_count' in each JSONL row.
-        max_samples:  Maximum number of samples to include.
+        max_samples:  Maximum number of samples to include (default 1000 so that
+                      --long-contexts has enough long-text entries to slice from).
         cache_dir:    Directory to cache the JSONL file. Defaults to /root/.
 
     Returns:
@@ -132,7 +141,7 @@ def prepare_hf_dataset(
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     safe_name = hf_name.replace("/", "__")
-    cache_path = cache_dir / f"{safe_name}_{split}_v1.jsonl"
+    cache_path = cache_dir / f"{safe_name}_{split}_v2.jsonl"
 
     if cache_path.exists():
         print(f"  HF dataset: using cached {cache_path}", flush=True)
@@ -145,13 +154,17 @@ def prepare_hf_dataset(
         ds = load_dataset(hf_name, split=split)
         n_orig = len(ds)
 
+        # Shuffle so that column detection and sample selection are representative
+        # of the full length distribution, not just the first N rows.
+        ds = ds.shuffle(seed=42)
+
         col = text_column or _detect_text_column(ds)
         if col is None:
             print(f"  WARNING: Cannot detect text column in '{hf_name}'", flush=True)
             return None
 
-        # Filter out short / empty entries (fewer than 50 chars)
-        ds = ds.filter(lambda row: bool(row.get(col, "")) and len(row[col]) >= 50)
+        # Filter for entries with enough text to be useful as prompts (≥200 chars)
+        ds = ds.filter(lambda row: bool(row.get(col, "")) and len(row[col]) >= 200)
         if max_samples and len(ds) > max_samples:
             ds = ds.select(range(max_samples))
 
