@@ -4,6 +4,7 @@ Runs inside lsv-container (intel/llm-scaler-vllm:0.14.0-b8). Subprocesses are ca
 directly (no docker exec wrapper); oneAPI is sourced via bash --login -c.
 """
 
+import os
 import re as _re
 import subprocess
 import threading
@@ -143,9 +144,13 @@ def wait_for_server(
 
     for elapsed in range(10, timeout, 5):
         try:
+            # Bypass proxy for localhost (Rule 3): curl inherits http_proxy from
+            # the bench process which was forwarded via docker exec -e.
+            _env = dict(os.environ, no_proxy="localhost,127.0.0.1,0.0.0.0",
+                        NO_PROXY="localhost,127.0.0.1,0.0.0.0")
             r = subprocess.run(
                 ["bash", "-c", f"curl -f -s http://localhost:{PORT}/health"],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True, text=True, timeout=10, env=_env,
             )
             # /health returns HTTP 200 with an empty body — check returncode only.
             if r.returncode == 0:
