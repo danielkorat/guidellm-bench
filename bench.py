@@ -57,16 +57,34 @@ if not os.path.exists("/.dockerenv"):
             flush=True,
         )
 
-        # 1. Back up the patched guidellm package from the corrupt container
+        # 1. Kill vllm + guidellm processes inside the container so their GPU
+        #    handles are released.  D-state processes can't receive SIGKILL but
+        #    once the GPU handle owner is gone the kernel eventually reaps them.
+        subprocess.call(["docker", "exec", _container,
+                         "pkill", "-9", "-f", "vllm"], stderr=subprocess.DEVNULL)
+        subprocess.call(["docker", "exec", _container,
+                         "pkill", "-9", "-f", "guidellm"], stderr=subprocess.DEVNULL)
+        time.sleep(15)  # allow D-state GPU driver lock to clear
+
+        # 2. Back up the patched guidellm package from the corrupt container
         #    (it lives outside the volume mount, so it won't survive rm -f).
         _gl_src = f"{_container}:/usr/local/lib/python3.12/dist-packages/guidellm"
         _gl_backup = f"/tmp/_gl_backup_{_container}"
         subprocess.call(["docker", "cp", _gl_src, _gl_backup])
 
-        # 2. Remove the corrupt container.
-        subprocess.call(["docker", "rm", "-f", _container])
+        # 3. Remove the corrupt container — retry up to 3× with backoff in case
+        #    D-state processes are slow to clear.
+        for _attempt in range(3):
+            _rm_rc = subprocess.call(["docker", "rm", "-f", _container])
+            if _rm_rc == 0:
+                break
+            print(f"[recovery] docker rm failed (attempt {_attempt+1}/3), retrying in 20s...",
+                  flush=True)
+            time.sleep(20)
+        else:
+            print("[recovery] WARNING: docker rm still failed — proceeding anyway", flush=True)
 
-        # 3. Recreate with identical volume / device / network args.
+        # 4. Recreate with identical volume / device / network args.
         subprocess.call([
             "docker", "run", "-td", "--privileged", "--net=host",
             "--device=/dev/dri",
@@ -79,20 +97,20 @@ if not os.path.exists("/.dockerenv"):
             _image,
         ])
 
-        # 4. Restore the patched guidellm package into the fresh container.
+        # 5. Restore the patched guidellm package into the fresh container.
         subprocess.call([
             "docker", "cp", _gl_backup,
             f"{_container}:/usr/local/lib/python3.12/dist-packages/guidellm",
         ])
 
-        # 5. Make guidellm_bench importable via .pth (no pip / no network).
+        # 6. Make guidellm_bench importable via .pth (no pip / no network).
         subprocess.call([
             "docker", "exec", _container, "bash", "-c",
             "echo /root/guidellm-bench "
             "> /usr/local/lib/python3.12/dist-packages/guidellm_bench_dev.pth",
         ])
 
-        # 6. Add --resume so already-completed configs are not re-run.
+        # 7. Add --resume so already-completed configs are not re-run.
         if "--resume" not in _run_args:
             _run_args = ["--resume"] + _run_args
 
