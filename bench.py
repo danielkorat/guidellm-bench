@@ -379,8 +379,12 @@ def main() -> None:
         print(f"\n  ✓  {cfg.name}  ({elapsed:.0f}s)  →  {', '.join(saved)}", flush=True)
         succeeded.append(cfg.name)
 
-    # Final cleanup — shut down the server that handled the last config.
-    stop_server(current_server_proc)
+    # Intentionally do NOT stop the server here.  server_status.json is left on
+    # disk so the next bench invocation can skip the ~90s restart if the config
+    # matches.  stop_server() is only called mid-run when a config change forces
+    # a different server (handled at the top of the loop above).
+    if SERVER_STATUS_PATH.exists():
+        print(f"\n  Server kept alive for reuse (server_status.json preserved).", flush=True)
 
     # Summary
     print(f"\n{'='*60}")

@@ -315,15 +315,18 @@ After reboot, resume manually:
 Do NOT attempt container recreation — D-state vllm processes block `docker rm -f` even with SIGKILL.
 
 ### 22. Server Reuse via server_status.json
-**RULE**: `bench.py` never unconditionally kills and restarts vLLM between configs. Before each config,
-`server_is_reusable(cfg, max_model_len)` in `server.py` checks:
+**RULE**: `bench.py` **never stops the server at end of run**. `server_status.json` is left on
+disk so the next bench invocation can skip the ~90s restart when the config matches.
+`stop_server()` is only called **mid-run** when a config change requires a different server.
+
+Before each config, `server_is_reusable(cfg, max_model_len)` in `server.py` checks:
 1. `/root/guidellm-bench/server_status.json` exists and all config fields match (model, tp, quant, eager, expert_parallel_size, speculative_config, max_model_len, port).
 2. The recorded PID is alive (`os.kill(pid, 0)`).
 3. `/health` returns HTTP 200 (with `no_proxy` to bypass Intel proxy).
 
 If all three pass → print "Reusing running server" and skip restart (saves ~90s per config).
 On successful startup → `write_server_status(cfg, max_model_len, proc.pid, log_path)` writes the JSON.
-On `stop_server()` → `server_status.json` is deleted.
+On `stop_server()` (config change only) → `server_status.json` is deleted.
 
 Status file path: `/root/guidellm-bench/server_status.json` (inside container; volume-backed at host `/root/dkorat/guidellm-bench/server_status.json`).
 
