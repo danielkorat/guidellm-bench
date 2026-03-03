@@ -41,12 +41,23 @@ if not os.path.exists("/.dockerenv"):
     _rc = subprocess.call(_cmd)
     if _rc == 42:
         # XPU kernel hang: container state is corrupted past recovery.
-        # Reboot the host; manually resume with ./bench.py --resume after reboot.
         print(
-            "\n[recovery] XPU kernel hang (exit 42). Rebooting host...",
+            "\n[recovery] XPU kernel hang detected (exit 42).\n"
+            "  A host reboot is required to clear the XPU driver state.\n"
+            "  After rebooting, resume with: ./bench.py --resume",
             flush=True,
         )
-        subprocess.call(["reboot"])
+        if sys.stdin.isatty():
+            try:
+                answer = input("  Reboot now? [y/N] ").strip().lower()
+            except EOFError:
+                answer = ""
+            if answer == "y":
+                subprocess.call(["reboot"])
+            else:
+                print("  Skipping reboot. Reboot manually when ready.", flush=True)
+        else:
+            print("  (Non-interactive session — skipping automatic reboot. Reboot manually.)", flush=True)
     sys.exit(_rc)
 
 # ---------------------------------------------------------------------------

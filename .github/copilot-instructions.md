@@ -298,7 +298,8 @@ the container is corrupted and the server will **never** become healthy.
 - If `OperatorEntry.cpp:208` is present AND ≥120s have elapsed with no healthy response,
   it raises `XpuKernelHangError`.
 - The container-side bench.py catches this and exits with **code 42**.
-- The host-side re-exec guard detects exit code 42, prints a warning, and calls `reboot`.
+- The host-side re-exec guard detects exit code 42, prints a warning, and **prompts for confirmation** before calling `reboot`.
+- In non-interactive sessions (nohup), the reboot is skipped and must be done manually.
 
 After reboot, resume manually:
 ```bash
@@ -390,7 +391,7 @@ bash results/YYYYMMDD_HHMM/serve_dashboard.sh
 
 ---
 
-**Last Updated**: March 3, 2026 — Rule 18 updated (reboot host on exit 42, not container recreation); Rules 19-20 added (no /tmp, result dir names); result dirs renamed to `results/` and `sanity_results/`  
+**Last Updated**: March 3, 2026 — Rule 18 updated (interactive reboot confirmation; non-interactive sessions skip auto-reboot); proxy forwarded through docker exec; single container (lsv-container)  
 **Primary Maintainer**: Daniel Korat, Intel
 
 ---
@@ -408,7 +409,7 @@ Mistakes that happened once and must not repeat:
 | 5 | Tried to upgrade system pip inside container (`RECORD file not found`) | Skip `pip install --upgrade pip` inside the vLLM container; the bundled pip is sufficient |
 | 6 | `SANITY.timeout_startup=180` too short — vLLM XPU JIT on first load takes >3 min | Use `timeout_startup=600` for both FULL and SANITY |
 | 7 | Log and pid files saved in repo root via `nohup ./bench.py > bench.log` | `bench.py` self-logs into `out_dir/bench.log`; just run `nohup ./bench.py &` (Rule 16) |
-| 8 | vLLM server hangs after XPU kernel registration warnings (`OperatorEntry.cpp:208 Warning: Overriding a previously registered kernel`) followed by `Still waiting... Xs elapsed` and never reaches `/health` | XPU driver state is corrupted; D-state processes block even `docker rm -f`. **Reboot the host** (`subprocess.call(['reboot'])` — automatic on exit 42). Resume with `./bench.py --resume` after reboot. See Rule 18. |
+| 8 | vLLM server hangs after XPU kernel registration warnings (`OperatorEntry.cpp:208 Warning: Overriding a previously registered kernel`) followed by `Still waiting... Xs elapsed` and never reaches `/health` | XPU driver state is corrupted; D-state processes block even `docker rm -f`. Exit 42 fires; host-side guard **prompts user** before rebooting (non-interactive sessions skip auto-reboot). Resume with `./bench.py --resume` after reboot. See Rule 18. |
 | 9 | Named AIME JSONL column `output_tokens` — models generated only 16 tokens | Column must be `output_tokens_count` (guidellm default); `output_tokens` is not mapped to `max_tokens` in the completions body, leaving vLLM's default of 16. Cache path is `/root/aime_2024_v2.jsonl` (container) = `/root/dkorat/aime_2024_v2.jsonl` (host, volume-backed). |
 | 10 | Dashboard showed 0 for TTFT/ITL/req/s/tok/s | `b['metrics']` aggregates are zero-filled in guidellm v0.6; must compute medians from `b['requests']['successful'][*]` per-request fields in `_extract_sweep_points`. |
 | 11 | gpt-oss-20b + tp=2 crashed with OOM (UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY), guidellm reported 30 "successful" requests with empty output | Added `gpt-oss-20b + tp<4` skip rule — model requires at least 4 GPUs |
