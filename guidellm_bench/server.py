@@ -4,6 +4,7 @@ Runs inside lsv-container (intel/llm-scaler-vllm:0.14.0-b8). Subprocesses are ca
 directly (no docker exec wrapper); oneAPI is sourced via bash --login -c.
 """
 
+import json
 import os
 import re as _re
 import subprocess
@@ -14,6 +15,11 @@ from typing import Optional
 
 from .config import Config, PORT
 from .docker import _PREAMBLE
+
+# Path where the currently-running server's config + PID are persisted.
+# bench.py writes this after a successful startup and reads it to decide
+# whether to reuse the running server rather than restart it.
+SERVER_STATUS_PATH = Path("/root/guidellm-bench/server_status.json")
 
 # ---------------------------------------------------------------------------
 # XPU kernel hang detection
@@ -59,6 +65,79 @@ def _log_has_startup_complete(log_path: Optional[Path]) -> bool:
     try:
         return "Application startup complete" in log_path.read_text()
     except OSError:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Server status persistence (server_status.json)
+# ---------------------------------------------------------------------------
+
+def _cfg_to_status_key(cfg: Config, max_model_len: int) -> dict:
+    """Return the subset of fields used to decide if a server is reusable."""
+    return {
+        "model": cfg.model,
+        "tp": cfg.tp,
+        "quant": cfg.quant,
+        "eager": cfg.eager,
+        "expert_parallel_size": cfg.expert_parallel_size,
+        "speculative_config": cfg.speculative_config,
+        "max_model_len": max_model_len,
+        "port": PORT,
+    }
+
+
+def write_server_status(cfg: Config, max_model_len: int, pid: int, log_path: Path) -> None:
+    """Persist the running server's config + PID to SERVER_STATUS_PATH.
+
+    Called immediately after wait_for_server() returns True so future configs
+    can skip the expensive startup if the server already has what they need.
+    """
+    payload = _cfg_to_status_key(cfg, max_model_len)
+    payload["pid"] = pid
+    payload["log_path"] = str(log_path)
+    payload["status"] = "ready"
+    try:
+        SERVER_STATUS_PATH.write_text(json.dumps(payload, indent=2))
+    except OSError as exc:
+        print(f"  WARNING: could not write server_status.json: {exc}", flush=True)
+
+
+def server_is_reusable(cfg: Config, max_model_len: int) -> bool:
+    """Return True if a vLLM server is already running with exactly this config.
+
+    Checks (in order):
+      1. SERVER_STATUS_PATH exists and all config fields match.
+      2. The recorded PID is alive (os.kill sentinel).
+      3. /health returns HTTP 200 (with no_proxy so Intel proxy is bypassed).
+    """
+    if not SERVER_STATUS_PATH.exists():
+        return False
+    try:
+        status = json.loads(SERVER_STATUS_PATH.read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    desired = _cfg_to_status_key(cfg, max_model_len)
+    for key, val in desired.items():
+        if status.get(key) != val:
+            return False
+
+    pid = status.get("pid", 0)
+    if pid:
+        try:
+            os.kill(pid, 0)  # raises OSError if process is dead/gone
+        except OSError:
+            return False
+
+    _env = dict(os.environ, no_proxy="localhost,127.0.0.1,0.0.0.0",
+                NO_PROXY="localhost,127.0.0.1,0.0.0.0")
+    try:
+        r = subprocess.run(
+            ["bash", "-c", f"curl -f -s http://localhost:{PORT}/health"],
+            capture_output=True, text=True, timeout=10, env=_env,
+        )
+        return r.returncode == 0
+    except Exception:
         return False
 
 
@@ -189,7 +268,11 @@ def wait_for_server(
 
 
 def stop_server(proc: Optional[subprocess.Popen] = None) -> None:
-    """Kill *proc* (if given) and any lingering vllm / guidellm processes."""
+    """Kill *proc* (if given) and any lingering vllm / guidellm processes.
+
+    Also removes SERVER_STATUS_PATH so the next config doesn't falsely detect
+    a running server.
+    """
     if proc:
         try:
             proc.kill()
@@ -199,6 +282,10 @@ def stop_server(proc: Optional[subprocess.Popen] = None) -> None:
     for pat in ("vllm serve", "vllm bench", "guidellm benchmark"):
         subprocess.run(["pkill", "-f", pat], capture_output=True)
     time.sleep(5)
+    try:
+        SERVER_STATUS_PATH.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 # ---------------------------------------------------------------------------

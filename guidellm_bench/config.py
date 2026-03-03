@@ -10,6 +10,19 @@ from typing import Optional
 
 PORT = 8000
 
+# Models that support Expert Parallelism (MoE architecture).
+# Only these models should be used with --ep / expert_parallel_size.
+_MOE_MODELS: frozenset[str] = frozenset({
+    "openai/gpt-oss-20b",
+    "openai/gpt-oss-120b",
+    "Qwen/Qwen3-30B-A3B",
+})
+
+
+def is_moe_model(model: str) -> bool:
+    """Return True if *model* has a Mixture-of-Experts architecture (supports EP)."""
+    return model in _MOE_MODELS
+
 # Eagle3 speculative decoding config for gpt-oss-120b.
 # Draft model always runs at draft_tensor_parallel_size=1 (Eagle3 constraint).
 EAGLE3_SPECULATIVE_CONFIG = (

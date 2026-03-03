@@ -76,15 +76,19 @@ from guidellm_bench import (
     SANITY,
     Config,
     GpuMonitor,
+    SERVER_STATUS_PATH,
     XpuKernelHangError,
     build_dashboard_html,
+    is_moe_model,
     parse_model_mem_gib,
     prepare_aime_dataset,
     run_guidellm,
+    server_is_reusable,
     skip_reason,
     start_server,
     stop_server,
     wait_for_server,
+    write_server_status,
 )
 from guidellm_bench.benchmark import copy_results
 from guidellm_bench.dashboard import write_serve_script
@@ -248,6 +252,9 @@ def main() -> None:
         for c in ep_configs:
             if models and c.model not in models:
                 continue
+            if not is_moe_model(c.model):
+                print(f"  SKIP  {c.model}  ep={c.expert_parallel_size}: EP requires MoE architecture (not applicable to this model)")
+                continue
             configs.append(c)
             print(f"  +    {c.model}  tp={c.tp}  quant={c.quant or 'none'}  ep={c.expert_parallel_size}  (EP via --ep)")
 
@@ -266,6 +273,9 @@ def main() -> None:
 
     succeeded: list[str] = []
     failed: list[tuple[str, str]] = []
+    # Tracks the Popen of the currently-running vLLM server so we can skip
+    # tearing it down and restarting when consecutive configs are identical.
+    current_server_proc = None
 
     for i, cfg in enumerate(configs, 1):
         print(f"\n{'='*60}")
@@ -281,29 +291,40 @@ def main() -> None:
 
         t0 = time.time()
 
-        stop_server()  # clean up any lingering processes
+        _server_log = log_dir / f"{cfg.name}_server.log"
+        if server_is_reusable(cfg, max_model_len):
+            # Server already running with this exact config and passing /health.
+            # Reuse it — avoid the ~90s restart cost.
+            print("  Reusing running server (config matches, server is healthy)", flush=True)
+            proc = None
+        else:
+            # Stop whatever is currently running (previous config or stray).
+            stop_server(current_server_proc)
+            current_server_proc = None
+
+            proc = start_server(cfg, max_model_len, _server_log)
+            try:
+                ready = wait_for_server(timeout_startup, log_path=_server_log, proc=proc)
+            except XpuKernelHangError as _hang:
+                print(f"  FATAL: {_hang}", flush=True)
+                print(
+                    "  Exiting with code 42 — host will recreate the container and resume.",
+                    flush=True,
+                )
+                stop_server(proc)
+                sys.exit(42)
+            if not ready:
+                stop_server(proc)
+                current_server_proc = None
+                failed.append((cfg.name, "server startup failed"))
+                continue
+
+            # Persist running server config so next iteration can skip restart.
+            write_server_status(cfg, max_model_len, proc.pid, _server_log)
+            current_server_proc = proc
 
         monitor = GpuMonitor(interval=10)
         monitor.start()
-
-        proc = start_server(cfg, max_model_len, log_dir / f"{cfg.name}_server.log")
-        _server_log = log_dir / f"{cfg.name}_server.log"
-        try:
-            ready = wait_for_server(timeout_startup, log_path=_server_log, proc=proc)
-        except XpuKernelHangError as _hang:
-            print(f"  FATAL: {_hang}", flush=True)
-            print(
-                "  Exiting with code 42 — host will recreate the container and resume.",
-                flush=True,
-            )
-            stop_server(proc)
-            monitor.stop()
-            sys.exit(42)
-        if not ready:
-            stop_server(proc)
-            monitor.stop()
-            failed.append((cfg.name, "server startup failed"))
-            continue
 
         data = run_guidellm(
             cfg, input_len, output_len, concurrency, num_prompts,
@@ -311,7 +332,9 @@ def main() -> None:
             sweep=not args.sanity,
             dataset_path=aime_path,
         )
-        stop_server(proc)
+        # Server intentionally kept alive — reused by next config if possible.
+        # Final teardown happens after all configs or before a config with a
+        # different server requirement (handled above at the top of the loop).
 
         gpu_readings = monitor.stop()
         gpu_data[cfg.name] = gpu_readings
@@ -337,6 +360,9 @@ def main() -> None:
         elapsed = time.time() - t0
         print(f"\n  ✓  {cfg.name}  ({elapsed:.0f}s)  →  {', '.join(saved)}", flush=True)
         succeeded.append(cfg.name)
+
+    # Final cleanup — shut down the server that handled the last config.
+    stop_server(current_server_proc)
 
     # Summary
     print(f"\n{'='*60}")
