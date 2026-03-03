@@ -1,0 +1,364 @@
+<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><title>GuideLLM</title><meta name="description" content="LLM Benchmarking Tool"/><link rel="manifest" href="https://blog.vllm.ai/guidellm/ui/v0.5.0/manifest.json"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="icon" href="https://blog.vllm.ai/guidellm/ui/v0.5.0/favicon.png"/><link rel="apple-touch-icon" href="https://blog.vllm.ai/guidellm/ui/v0.5.0/favicon-192x192.png"/><script>window.runInfo = {
+  "model": {
+    "name": "Qwen/Qwen3-30B-A3B",
+    "size": 0
+  },
+  "task": "N/A",
+  "timestamp": 1772473448.503905,
+  "dataset": {
+    "name": "N/A"
+  }
+};
+ window.workloadDetails = {
+  "prompts": {
+    "samples": [
+      "{'method':null,'stream':true,'headers':null,'params':null,'body':{'model':'Qwen/Qwen3-30B-A3B','stream':true,'stream_options':{'include_usage':true,'continuous_usage_stats':true},'max_tokens':1024,'stop':null,'ignore_eos':true,'prompt':'Define $f(x)=|| x|-\\\\tfrac{1}{2}|$ and $g(x)=|| x|-\\\\tfrac{1}{4}|$. Find the number of intersections of the graphs of \\\\[y=4 g(f(\\\\sin (2 \\\\pi x))) \\\\quad\\\\text{ and }\\\\quad x=4 g(f(\\\\cos (3 \\\\pi y))).\\\\]'},'files':null}",
+      "{'method':null,'stream':true,'headers':null,'params':null,'body':{'model':'Qwen/Qwen3-30B-A3B','stream':true,'stream_options':{'include_usage':true,'continuous_usage_stats':true},'max_tokens':1024,'stop':null,'ignore_eos':true,'prompt':'Let $ABC$ be a triangle inscribed in circle $\\\\omega$. Let the tangents to $\\\\omega$ at $B$ and $C$ intersect at point $D$, and let $\\\\overline{AD}$ intersect $\\\\omega$ at $P$. If $AB=5$, $BC=9$, and $AC=10$, $AP$ can be written as the form $\\\\frac{m}{n}$, where $m$ and $n$ are relatively prime integers. Find $m + n$.'},'files':null}",
+      "{'method':null,'stream':true,'headers':null,'params':null,'body':{'model':'Qwen/Qwen3-30B-A3B','stream':true,'stream_options':{'include_usage':true,'continuous_usage_stats':true},'max_tokens':1024,'stop':null,'ignore_eos':true,'prompt':'Alice and Bob play the following game. A stack of $n$ tokens lies before them. The players take turns with Alice going first. On each turn, the player removes either $1$ token or $4$ tokens from the stack. Whoever removes the last token wins. Find the number of positive integers $n$ less than or equal to $2024$ for which there exists a strategy for Bob that guarantees that Bob will win the game regardless of Alice's play.'},'files':null}",
+      "{'method':null,'stream':true,'headers':null,'params':null,'body':{'model':'Qwen/Qwen3-30B-A3B','stream':true,'stream_options':{'include_usage':true,'continuous_usage_stats':true},'max_tokens':1024,'stop':null,'ignore_eos':true,'prompt':'Each vertex of a regular octagon is independently colored either red or blue with equal probability. The probability that the octagon can then be rotated so that all of the blue vertices end up at positions where there were originally red vertices is $\\\\tfrac{m}{n}$, where $m$ and $n$ are relatively prime positive integers. What is $m+n$?'},'files':null}",
+      "{'method':null,'stream':true,'headers':null,'params':null,'body':{'model':'Qwen/Qwen3-30B-A3B','stream':true,'stream_options':{'include_usage':true,'continuous_usage_stats':true},'max_tokens':1024,'stop':null,'ignore_eos':true,'prompt':'A list of positive integers has the following properties:\\n$\\\\bullet$ The sum of the items in the list is $30$.\\n$\\\\bullet$ The unique mode of the list is $9$.\\n$\\\\bullet$ The median of the list is a positive integer that does not appear in the list itself.\\nFind the sum of the squares of all the items in the list.'},'files':null}"
+    ],
+    "tokenDistributions": {
+      "statistics": {
+        "mean": 97.52173913043478,
+        "median": 86.0,
+        "mode": 76.0,
+        "variance": 1625.2930056710773,
+        "min": 47.0,
+        "max": 197.0,
+        "count": 23,
+        "percentiles": {
+          "p001": 47.0,
+          "p01": 47.0,
+          "p05": 49.0,
+          "p10": 52.0,
+          "p25": 65.0,
+          "p50": 86.0,
+          "p75": 124.0,
+          "p90": 151.0,
+          "p95": 179.0,
+          "p99": 197.0,
+          "p999": 197.0
+        },
+        "pdf": null,
+        "stdDev": 40.31492286574634,
+        "totalSum": 2243.0
+      },
+      "buckets": [
+        {
+          "value": 47.0,
+          "count": 1
+        },
+        {
+          "value": 49.0,
+          "count": 1
+        },
+        {
+          "value": 52.0,
+          "count": 1
+        },
+        {
+          "value": 54.0,
+          "count": 1
+        },
+        {
+          "value": 60.0,
+          "count": 1
+        },
+        {
+          "value": 65.0,
+          "count": 1
+        },
+        {
+          "value": 76.0,
+          "count": 2
+        },
+        {
+          "value": 77.0,
+          "count": 1
+        },
+        {
+          "value": 81.0,
+          "count": 1
+        },
+        {
+          "value": 84.0,
+          "count": 1
+        },
+        {
+          "value": 86.0,
+          "count": 1
+        },
+        {
+          "value": 93.0,
+          "count": 1
+        },
+        {
+          "value": 96.0,
+          "count": 1
+        },
+        {
+          "value": 98.0,
+          "count": 1
+        },
+        {
+          "value": 106.0,
+          "count": 1
+        },
+        {
+          "value": 112.0,
+          "count": 1
+        },
+        {
+          "value": 124.0,
+          "count": 1
+        },
+        {
+          "value": 133.0,
+          "count": 1
+        },
+        {
+          "value": 147.0,
+          "count": 1
+        },
+        {
+          "value": 151.0,
+          "count": 1
+        },
+        {
+          "value": 179.0,
+          "count": 1
+        },
+        {
+          "value": 197.0,
+          "count": 1
+        }
+      ],
+      "bucketWidth": 1
+    }
+  },
+  "generations": {
+    "samples": [
+      " To solve this problem, we need to find the number of points where the graphs of the equations   $$ y = 4 g(f(\\sin (2 \\pi x))) $$ and   $$ x = 4 g(f(\\cos (3 \\pi y))) $$ intersect. This means we need to find the number of points $(x, y)$ such that both equations are satisfied simultaneously.  ---  ### Step 1: Understand the Functions  We are given:  - $ f(x) = \\left| |x| - \\frac{1}{2} \\right| $ - $ g(x) = \\left| |x| - \\frac{1}{4} \\right| $  These functions are symmetric about the y-axis and have V-shaped graphs. Let's analyze their behavior.  #### Behavior of $ f(x) $:  - $ f(x) = \\left| |x| - \\frac{1}{2} \\right| $ - For $ |x| \\leq \\frac{1}{2} $, $ f(x) = \\frac{1}{2} - |x| $ - For $ |x| \\geq \\frac{1}{2} $, $ f(x) = |x| - \\frac{1}{2} $  So $ f(x) $ is a 'W' shape: it decreases from 1/2 at $ x = 0 $ to 0 at $ x = \\pm \\frac{1}{2} $, then increases back to 1/2 at $ x = \\pm 1 $, and so on.  #### Behavior of $ g(x) $:  - $ g(x) = \\left| |x| - \\frac{1}{4} \\right| $ - For $ |x| \\leq \\frac{1}{4} $, $ g(x) = \\frac{1}{4} - |x| $ - For $ |x| \\geq \\frac{1}{4} $, $ g(x) = |x| - \\frac{1}{4} $  So $ g(x) $ is a 'V' shape: it decreases from 1/4 at $ x = 0 $ to 0 at $ x = \\pm \\frac{1}{4} $, then increases back to 1/4 at $ x = \\pm \\frac{1}{2} $, and so on.  ---  ### Step 2: Analyze the Functions in the Equations  We are given:  - $ y = 4 g(f(\\sin(2\\pi x))) $ - $ x = 4 g(f(\\cos(3\\pi y))) $  We need to find the number of points $(x, y)$ that satisfy both.  Let\u2019s consider the ranges of the inner functions.  #### First, $ \\sin(2\\pi x) $ and $ \\cos(3\\pi y) $:  - The sine and cosine functions both range between $-1$ and $1$ - So $ \\sin(2\\pi x) \\in [-1, 1] $, and $ \\cos(3\\pi y) \\in [-1, 1] $  Then:  - $ f(\\sin(2\\pi x)) \\in f([-1,1]) $ - $ f(\\cos(3\\pi y)) \\in f([-1,1]) $  But we already analyzed $ f(x) $: it is symmetric, and for $ x \\in [-1, 1] $, the function $ f(x) $ takes values in $[0, 1]$, since $ f(x) \\leq \\frac{1}{2} $ for $ |x| \\leq \\frac{1}{2} $, and increases to 1 at $ |x| = 1 $.  So $ f(\\sin(2\\pi x)) \\in [0, 1] $, and $ g(f(\\sin(2\\pi x))) \\in g([0,1]) $  Similarly, $ f(\\cos(3\\pi y)) \\in [0,1] $, and $ g(f(\\cos(3\\pi y))) \\in g([0,1]) $  So:  - $ y = 4 g(f(\\sin(2\\pi x))) \\in [0, 4] $ - $ x = 4 g(f(\\cos(3\\pi y))) \\in [0, 4] $  So we are looking for intersections in the square $ [0,4] \\times [0,4] $  ---  ### Step 3: Analyze the Functions in Terms of Periodicity  Let\u2019s consider the periodicity of the inner functions:  - $ \\sin(2\\pi x) $ has period 1 - $ \\cos(3\\pi y) $ has period $",
+      "   Okay, so I need to find the length of AP in triangle ABC inscribed in a circle \u03c9. The tangents at B and C meet at D, and AD intersects \u03c9 again at P. Given sides AB=5, BC=9, and AC=10. The answer should be in the form m/n where m and n are coprime, then find m + n. Alright, let me think step by step.  First, I remember that when two tangents are drawn from a point to a circle, they are equal in length. So, DB = DC because they are tangents from D to \u03c9. But I don't know where exactly D is yet. Maybe I need to find coordinates or use some properties?  Alternatively, maybe using power of a point. The power of point D with respect to \u03c9 is DB\u00b2 = DC\u00b2 = DP * DA. Wait, since AD passes through P, which is on \u03c9, so power of D would be DP * DA = DB\u00b2. Hmm, that seems useful. So if I can find DB or DA, maybe I can relate them. But I need more information.  Alternatively, maybe using Ceva's theorem or Menelaus? Or maybe harmonic division? Not sure. Let me recall some theorems related to tangents and secants.  Another thought: Since D is the intersection of tangents at B and C, then AD is the symmedian of triangle ABC? Wait, is that right? Because the tangents at B and C... The symmedian is the reflection of the median over the angle bisector. But maybe AD is the symmedian? If that's the case, there might be some relations. But I need to verify.  Alternatively, maybe using coordinates. Let me try coordinate geometry. Let me set up coordinates for triangle ABC. But maybe that's complicated. Alternatively, use barycentric coordinates? Or maybe use trigonometry?  Alternatively, use power of a point. Let me try that. Let me recall that power of D with respect to \u03c9 is DB\u00b2 = DC\u00b2. Also, since AD passes through P, then DP * DA = DB\u00b2. So if I can compute DB, then I can find DP, and then AP = AD - DP? Wait, but I need to know the direction. Wait, if AD intersects \u03c9 again at P, then starting from A, going through D, then P? Wait, no. Wait, AD starts at A, goes through D, but since D is outside the circle, then AD would intersect the circle at A and P. Wait, but if D is outside, then line AD would intersect the circle at A and another point P. Wait, but if D is outside, then the line AD would pass through A (which is on the circle) and then go out to D. But since D is outside, then P is between A and D? Or is D between A and P? Wait, depends on where D is.  Wait, tangents from D touch the circle at B and C, so D is outside the circle. Then line AD starts at A, goes through D? Or does it go from A to D, passing through P? Wait, the problem says 'AD intersects \u03c9 at P'. Since A is already on \u03c9, then AD intersects \u03c9 at A and P. So P is another intersection point. So depending on where D is, P could be between A and D or D could be between A and P. But since D is outside the circle, and A is on the circle, then if we draw a line from A through D, which is outside, then P would be between A and D? Wait, no. If you have a circle, a point A on the circle, and a point D outside. Then the line AD starts at A, goes out to D, so the other intersection point with the circle would be A itself, but since D is outside, there's only one intersection? Wait, no. Wait, a line through A and D (with D outside) will intersect the circle at A and another point. Wait, but if D is outside, then the line AD would intersect the circle at A and another point P. So depending on the position, P could be between A and D or D could be between A and P? Wait, if D is outside, then if you go from A towards D, you might exit the circle at A and then go out. Wait, but since A is on the circle, if you go from A towards D, which is outside, then you are leaving the circle. Therefore, the other intersection point P would be on the extension of AD beyond D? Wait, but that would mean that P is not between A and D, but beyond D. However, the problem says 'AD intersects \u03c9 at P', so maybe P is another point. Wait, but if AD is extended beyond D, then P is on that extension",
+      "   Okay, so Alice and Bob are playing this game with n tokens. They take turns, Alice goes first. Each turn, a player can remove either 1 or 4 tokens. The person who takes the last token wins. I need to find how many numbers n \u2264 2024 have a strategy where Bob can always win no matter what Alice does.   First, I think this is a classic combinatorial game theory problem. The key here is to figure out for each n whether it's a winning position or a losing position. A winning position means the current player can force a win no matter what the opponent does. A losing position is the opposite: no matter what the current player does, the opponent can force a win.  Since Alice goes first, if the starting position n is a losing position, then Bob can force a win. So the question is asking for the number of n \u2264 2024 where n is a losing position.  So I need to figure out for each n from 1 to 2024 whether it's a losing position. But how do I do that?  I remember that in such games, we can use dynamic programming. Let me try to define a function f(n) which is true if the current player can force a win with n tokens left, and false otherwise.  The base case: if n = 0, the game is over. But since the player who takes the last token wins, if there are 0 tokens left, the previous player has already won. So if it's your turn and there are 0 tokens, you lose. Therefore, f(0) = False.  For n \u2265 1, the current player can take 1 or 4 tokens. If either of those moves leads to a position where the opponent cannot win (i.e., f(n - 1) is False or f(n - 4) is False), then the current player can force a win by making that move. Therefore, f(n) = not (f(n - 1) and f(n - 4))? Wait, no. Wait, the logic is:  If there exists a move (either taking 1 or 4) such that the resulting position is a losing position for the opponent, then the current position is a winning position.  So f(n) = (not f(n - 1)) or (not f(n - 4)) if n \u2265 1 or 4 respectively.  Wait, more precisely:  For each n, f(n) is true if either f(n - 1) is false (meaning if you take 1, the opponent is in a losing position) or f(n - 4) is false (if you take 4, opponent is in losing position). So f(n) = (n \u2265 1 and not f(n - 1)) or (n \u2265 4 and not f(n - 4)).  Therefore, we can compute f(n) for each n from 1 up to 2024.  But since I need to find the number of n \u2264 2024 where Bob can force a win, which corresponds to f(n) being false (since Alice starts first, so if n is a losing position, Alice can't force a win, so Bob can).  Therefore, I need to compute the number of n from 1 to 2024 where f(n) is false.  But computing this for each n up to 2024 manually would be tedious. Maybe there's a pattern here. Let me try to compute some small values of n and see if I can find a pattern.  Let me start:  n = 0: f(0) = False (losing position, since you can't move)  n = 1: current player can take 1, leaving 0, which is a losing position for the opponent. So f(1) = True.  n = 2: current player can take 1, leaving 1 (which is a winning position for opponent) or take 4 (invalid). So only move is to take 1, leaving opponent with f(1)=True. Therefore, since all moves lead to opponent winning, f(2) = False.  Wait, no. Wait, f(n) is True if there exists a move leading to opponent's loss. So for n=2, the current player can take 1, leaving n=1 (opponent can win), or take 4 (invalid). So there's no move that leads to opponent's loss. Therefore f(2)=False.  n=3: current player can take 1, leaving n=2 (which is a losing position for opponent). Therefore, f(3)=True.  n=4: current player can take 1, leaving n=3 (opponent can win) or take 4, leaving n=0 (opponent loses). Therefore, since there is a move (taking 4) that leads",
+      "   Okay, so I need to find the probability that, after randomly coloring each vertex of a regular octagon either red or blue, there exists a rotation of the octagon such that all the blue vertices end up where there were originally red vertices. The answer should be in the form m/n with m and n coprime, and then find m + n.   First, let me make sure I understand the problem correctly. We have a regular octagon, so 8 vertices. Each vertex is colored red or blue independently with 50-50 chance. Then, we want the probability that there exists some rotation (could be 0 degrees, which is the identity rotation, or 45 degrees, 90 degrees, etc.) such that when we rotate the octagon, every blue vertex is now where a red vertex was originally.   So, in other words, there's some rotation that maps all blue vertices to positions that were originally red. Which would mean that the set of blue vertices is a subset of the set of red vertices shifted by some rotation. Wait, but since each vertex is colored either red or blue, the set of red and blue vertices are complements. So if we can rotate the octagon so that all blue vertices are in the original red positions, that would mean that the blue vertices are a subset of the red vertices. But since the total number of vertices is fixed, the only way that can happen is if the blue vertices are exactly the red vertices shifted by some rotation. But since the red and blue are complements, this would mean that the blue vertices are a rotation of the red vertices. But since the red and blue are complements, that would mean that the set of blue vertices is a rotation of the set of red vertices. But since the red vertices are the complement of blue, rotating the red vertices would give a set that is the complement of the rotated blue vertices. Wait, this is getting confusing. Maybe I need to think more carefully.  Let me think. Let's suppose that there exists a rotation such that when we rotate the octagon by that rotation, every blue vertex is mapped to a position that was originally red. So, if I have a coloring, and there exists some rotation r such that for every vertex v that is blue, the rotated position r(v) was originally red.   But since the coloring is fixed, the original positions are fixed. So, for each blue vertex, its image under rotation r must be a red vertex. Therefore, the set of blue vertices must be a subset of the set of red vertices rotated by r^{-1}. But since the set of red vertices is the complement of the set of blue vertices, then the set of blue vertices must be a subset of the complement of the set of blue vertices rotated by r^{-1}.   Wait, maybe another way: Let me denote the set of blue vertices as B and red vertices as R. Since each vertex is colored either red or blue, R is the complement of B. So, if there exists a rotation r such that r(B) \u2286 R. But since R is the complement of B, this means that r(B) \u2229 B = \u2205. Because if r(B) is entirely in R, then it can't intersect with B. Therefore, the condition is that there exists a rotation r such that r(B) and B are disjoint.   But since the octagon is regular, rotations by different angles can be considered. The rotations are by multiples of 45 degrees, so 0\u00b0, 45\u00b0, 90\u00b0, ..., 315\u00b0. So there are 8 possible rotations.   Therefore, the problem reduces to: what is the probability that there exists a rotation r (among the 8 rotations) such that r(B) \u2229 B = \u2205.   But note that if r(B) \u2229 B = \u2205, then since the total number of vertices is 8, the size of r(B) is equal to the size of B, so |B| must be \u2264 4, because otherwise, if |B| > 4, then r(B) and B would have to intersect by pigeonhole principle. Wait, if |B| is 5, then r(B) is also 5, and since there are 8 vertices, the intersection of B and r(B) would have to be at least 5 + 5 - 8 = 2. So, if |B| \u2265 5, then for any rotation r, r(B) and B must intersect. Therefore, the only colorings that can satisfy the condition are those with |B| \u2264 4.   But even then, for |B| \u2264 4, there might not necessarily exist a rotation that maps B to a subset of R. So, the probability is the probability that there exists a rotation such that r(B) \u2229 B = \u2205.   Therefore, first, the total number",
+      "  (Note: the mode is the value that appears most often, and if there are multiple modes, then the list is multimodal. However, in this case, the list has a unique mode, so there is only one mode.) Okay, so I need to figure out this problem where there's a list of positive integers with some specific properties. Let me try to break it down step by step.  First, the problem states:  - The sum of the items in the list is 30. - The unique mode of the list is 9. - The median of the list is a positive integer that does not appear in the list itself. - I need to find the sum of the squares of all the items in the list.  Alright, let's start by recalling what each of these terms means.  **Mode**: The mode is the number that appears most frequently. Since it's specified as a unique mode, 9 must appear more times than any other number in the list. So, if 9 is the mode, there must be at least two 9s, and every other number can appear at most once or the same number of times as 9 but not more. But since it's unique, no other number can have the same frequency as 9. So, if 9 appears twice, all others can appear at most once. If 9 appears three times, others can appear at most twice, etc.  **Median**: The median is the middle value when the numbers are arranged in order. If the list has an odd number of elements, the median is the middle one. If even, it's the average of the two middle numbers. However, the problem says the median is a positive integer that does not appear in the list itself. So, if the list has an even number of elements, the median would be the average of the two middle numbers. For this average to be an integer, the two middle numbers must add up to an even number. Also, this median value isn't in the list.  So, the median is an integer not present in the list. Let's think about possible list lengths.  Let me consider possible numbers of elements in the list. Let's denote the number of elements as n.  Since the median is an integer, if n is odd, the median is the (n+1)/2-th term. If n is even, the median is the average of the n/2-th and (n/2 + 1)-th terms. But since the median is an integer, if n is even, the two middle numbers must add up to an even number.  But also, the median is not in the list. So, if n is odd, the middle number is not in the list. Wait, but if the median is the middle number, how can it not be in the list? Wait, no, if the list is sorted, the median is the middle number. So if the median is not in the list, that would mean that the middle number isn't in the list? But that's impossible because the middle number is part of the list. Wait, that can't be. Wait, hold on, maybe I misunderstood.  Wait, the problem says 'the median of the list is a positive integer that does not appear in the list itself.' So, if the median is an integer, but it's not in the list. But if the list is sorted, the median is one of the numbers in the list if n is odd. So, for example, if there are 5 numbers, the third one is the median. So if the median is not in the list, that would mean that the third number isn't in the list? Which is impossible. Therefore, the list must have an even number of elements. Because then the median is the average of the two middle numbers, which might not be in the list.  Ah, that's probably the case. So the list must have an even number of elements. Therefore, n is even.  So, n is even, and the median is the average of the two middle numbers, which is an integer not present in the list.  So, for example, if the two middle numbers are 3 and 5, their average is 4, which is not in the list. So that's possible.  Therefore, n is even, and the median is an integer not in the list.  So, that's an important point. So the list has even number of elements.  Now, also, the sum is 30, and the unique mode is 9. So 9 appears more times than any other number.  So, let's think about possible numbers of elements.  Let me try to think of possible n.  Let me think of possible n. Since the sum is 30, and all numbers are positive integers, the minimum number of elements is 1 (but then the median would be the only number, which would have to not be in the list, which is impossible). So n must be at"
+    ],
+    "tokenDistributions": {
+      "statistics": {
+        "mean": 1024.0,
+        "median": 1024.0,
+        "mode": 1024.0,
+        "variance": 0.0,
+        "min": 1024.0,
+        "max": 1024.0,
+        "count": 23,
+        "percentiles": {
+          "p001": 1024.0,
+          "p01": 1024.0,
+          "p05": 1024.0,
+          "p10": 1024.0,
+          "p25": 1024.0,
+          "p50": 1024.0,
+          "p75": 1024.0,
+          "p90": 1024.0,
+          "p95": 1024.0,
+          "p99": 1024.0,
+          "p999": 1024.0
+        },
+        "pdf": null,
+        "stdDev": 0.0,
+        "totalSum": 23552.0
+      },
+      "buckets": [
+        {
+          "value": 1024.0,
+          "count": 23
+        }
+      ],
+      "bucketWidth": 1
+    }
+  },
+  "server": {
+    "target": "http://0.0.0.0:8000"
+  },
+  "requestsOverTime": {
+    "requestsOverTime": {
+      "buckets": [
+        {
+          "value": -89.9977707862854,
+          "count": 23
+        }
+      ],
+      "bucketWidth": 873.975373506546
+    },
+    "numBenchmarks": 1
+  },
+  "rateType": "synchronous"
+};
+ window.benchmarks = [
+  {
+    "itl": {
+      "mean": 38.65124784686373,
+      "median": 39.0606662977709,
+      "mode": 37.468204749993916,
+      "variance": 0.5115127665436611,
+      "min": 37.468204749993916,
+      "max": 39.45601417638456,
+      "count": 19437,
+      "percentiles": {
+        "p05": 37.468204749993916,
+        "p10": 37.50435324824567,
+        "p25": 37.83959866968418,
+        "p50": 39.0606662977709,
+        "p75": 39.3051471878007,
+        "p90": 39.386162659989076,
+        "p999": 39.45601417638456
+      },
+      "pdf": null,
+      "stdDev": 0.7152012070345387,
+      "totalSum": 751264.3043994904,
+      "percentileRows": [
+        {
+          "percentile": "p50",
+          "value": 39.0606662977709
+        },
+        {
+          "percentile": "p90",
+          "value": 39.386162659989076
+        },
+        {
+          "percentile": "p95",
+          "value": 39.45601417638456
+        },
+        {
+          "percentile": "p99",
+          "value": 39.45601417638456
+        }
+      ]
+    },
+    "ttft": {
+      "mean": 59.9928153188605,
+      "median": 58.10093879699707,
+      "mode": 53.69377136230469,
+      "variance": 31.35094120864166,
+      "min": 53.69377136230469,
+      "max": 72.79777526855469,
+      "count": 19,
+      "percentiles": {
+        "p05": 53.69377136230469,
+        "p10": 53.75194549560547,
+        "p25": 56.227684020996094,
+        "p50": 58.10093879699707,
+        "p75": 64.37063217163086,
+        "p90": 71.49863243103027,
+        "p999": 72.79777526855469
+      },
+      "pdf": null,
+      "stdDev": 5.59919112092467,
+      "totalSum": 1139.8634910583496,
+      "percentileRows": [
+        {
+          "percentile": "p50",
+          "value": 58.10093879699707
+        },
+        {
+          "percentile": "p90",
+          "value": 71.49863243103027
+        },
+        {
+          "percentile": "p95",
+          "value": 72.79777526855469
+        },
+        {
+          "percentile": "p99",
+          "value": 72.79777526855469
+        }
+      ]
+    },
+    "throughput": {
+      "mean": 25.859765493102046,
+      "median": 25.601250061038137,
+      "mode": 25.399024886299756,
+      "variance": 0.3477625241231894,
+      "min": 17.75825292456465,
+      "max": 51.23252064298627,
+      "count": 19456,
+      "percentiles": {
+        "p001": 20.23047760531723,
+        "p01": 25.344604842559413,
+        "p05": 25.34475799141942,
+        "p10": 25.38981908947706,
+        "p25": 25.441919712722463,
+        "p50": 25.601250061038137,
+        "p75": 26.427138464640354,
+        "p90": 26.66334405553507,
+        "p95": 26.689132952390647,
+        "p999": 26.689472612502545
+      },
+      "pdf": null,
+      "stdDev": 0.589713934143657,
+      "totalSum": 503127.5974337934,
+      "percentileRows": [
+        {
+          "percentile": "p50",
+          "value": 25.601250061038137
+        },
+        {
+          "percentile": "p90",
+          "value": 26.66334405553507
+        },
+        {
+          "percentile": "p95",
+          "value": 26.689132952390647
+        },
+        {
+          "percentile": "p99",
+          "value": 26.689472612502545
+        }
+      ]
+    },
+    "requestsPerSecond": 0.024999999999999994,
+    "timePerRequest": {
+      "mean": 39.60116597225791,
+      "median": 40.01813006401062,
+      "mode": 38.38768672943115,
+      "variance": 0.5376421851041621,
+      "min": 38.38768672943115,
+      "max": 40.430073499679565,
+      "count": 19,
+      "percentiles": {
+        "p05": 38.38768672943115,
+        "p10": 38.42151403427124,
+        "p25": 38.779122829437256,
+        "p50": 40.01813006401062,
+        "p75": 40.281559228897095,
+        "p90": 40.35735082626343,
+        "p999": 40.430073499679565
+      },
+      "pdf": null,
+      "stdDev": 0.7332408779549611,
+      "totalSum": 752.4221534729003,
+      "percentileRows": [
+        {
+          "percentile": "p50",
+          "value": 40.01813006401062
+        },
+        {
+          "percentile": "p90",
+          "value": 40.35735082626343
+        },
+        {
+          "percentile": "p95",
+          "value": 40.430073499679565
+        },
+        {
+          "percentile": "p99",
+          "value": 40.430073499679565
+        }
+      ]
+    }
+  }
+];
+</script><style data-emotion="mui okvjfn 1sf3xto 1miunce liujld 1ytgrgl 1d1z477 1fa3xlr 1d9l5zu 1v9qozf krfyoj hw9iw8 1ha086w 1jz7ivr 1h2ruwl 7bmlev 1e2dcm1 okvapm pxadv6 1jcswl9 1xmwsk2 1a9nspn 1amffs8 d0uhtl 11ff4y3 lm0mo7 q9hp3s hdzoli 1aine2r 2wz1hu 1ka6afz 1a6ealx 1vamkkl 8atqhb j77svj rbyfcn 1drpjxy 6408au j7qwjs 0 19ldw5v 1lz028s 1ofqig9 1q9b97s isbt42 1s50f5r fkg9yc 15j76c0 1wxaqej pgugi9 mfjk8s zhbgj8 xck77d 1xr92y4 mr86mw 8w58ru">.mui-okvjfn{min-height:100vh;display:grid;grid-template-rows:auto 1fr auto;background:linear-gradient(105deg, black, #0C0E13);padding:32px;}.mui-1sf3xto{padding-top:16px;padding-bottom:16px;}.mui-1miunce{margin:0;color:#000000;font-size:16px;font-weight:500;font-family:Spezia,sans-serif;line-height:20px;color:#2A8EFD;}@media (max-width:600px){.mui-1miunce{font-size:14px;line-height:17px;}}.mui-liujld{margin:0;color:#000000;font-size:32px;font-weight:400;font-family:Spezia,sans-serif;line-height:40px;color:#E1E2E9;margin-top:12px;margin-bottom:12px;}@media (max-width:600px){.mui-liujld{font-size:24px;line-height:30px;}}.mui-1ytgrgl{background-color:#191C20;padding:0 16px;border-radius:8px;}.mui-1d1z477{box-sizing:border-box;display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-box-flex-wrap:wrap;-webkit-flex-wrap:wrap;-ms-flex-wrap:wrap;flex-wrap:wrap;width:100%;-webkit-flex-direction:row;-ms-flex-direction:row;flex-direction:row;background-color:#191C20;padding:0 16px;border-radius:8px;}.mui-1fa3xlr{overflow:hidden;padding:8px;border-right:1px solid #42464E;padding-left:0px;}.mui-1d9l5zu{box-sizing:border-box;margin:0;-webkit-flex-direction:row;-ms-flex-direction:row;flex-direction:row;-webkit-flex-basis:41.666667%;-ms-flex-preferred-size:41.666667%;flex-basis:41.666667%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:41.666667%;padding-left:0px;overflow:hidden;padding:8px;border-right:1px solid #42464E;padding-left:0px;}@media (min-width:600px){.mui-1d9l5zu{-webkit-flex-basis:41.666667%;-ms-flex-preferred-size:41.666667%;flex-basis:41.666667%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:41.666667%;}}@media (min-width:900px){.mui-1d9l5zu{-webkit-flex-basis:41.666667%;-ms-flex-preferred-size:41.666667%;flex-basis:41.666667%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:41.666667%;}}@media (min-width:1200px){.mui-1d9l5zu{-webkit-flex-basis:41.666667%;-ms-flex-preferred-size:41.666667%;flex-basis:41.666667%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:41.666667%;}}@media (min-width:1536px){.mui-1d9l5zu{-webkit-flex-basis:41.666667%;-ms-flex-preferred-size:41.666667%;flex-basis:41.666667%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:41.666667%;}}.mui-1v9qozf{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-flex-direction:column;-ms-flex-direction:column;flex-direction:column;-webkit-align-items:flex-start;-webkit-box-align:flex-start;-ms-flex-align:flex-start;align-items:flex-start;margin-bottom:8px;}.mui-krfyoj{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-flex-direction:column;-ms-flex-direction:column;flex-direction:column;-webkit-align-items:flex-start;-webkit-box-align:flex-start;-ms-flex-align:flex-start;align-items:flex-start;margin-bottom:8px;}.mui-hw9iw8{margin:0;color:#000000;font-size:12px;font-weight:500;font-family:Spezia Mono,sans-serif;line-height:20px;text-transform:uppercase;color:#E1E2E9;}@media (max-width:600px){.mui-hw9iw8{font-size:10px;line-height:12px;}}.mui-1ha086w{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;max-width:100%;width:auto;}.mui-1jz7ivr{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;max-width:100%;width:auto;}.mui-1h2ruwl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.mui-7bmlev{margin:0;color:#000000;font-size:22px;font-weight:400;font-family:Spezia,sans-serif;line-height:26px;color:#2A8EFD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}@media (max-width:600px){.mui-7bmlev{font-size:10px;line-height:12px;}}.mui-1e2dcm1{z-index:1500;pointer-events:none;}.mui-okvapm{z-index:1500;pointer-events:none;}.mui-pxadv6{overflow:hidden;padding:8px;padding-right:0px;}.mui-1jcswl9{box-sizing:border-box;margin:0;-webkit-flex-direction:row;-ms-flex-direction:row;flex-direction:row;-webkit-flex-basis:16.666667%;-ms-flex-preferred-size:16.666667%;flex-basis:16.666667%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:16.666667%;padding-right:0px;overflow:hidden;padding:8px;padding-right:0px;}@media (min-width:600px){.mui-1jcswl9{-webkit-flex-basis:16.666667%;-ms-flex-preferred-size:16.666667%;flex-basis:16.666667%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:16.666667%;}}@media (min-width:900px){.mui-1jcswl9{-webkit-flex-basis:16.666667%;-ms-flex-preferred-size:16.666667%;flex-basis:16.666667%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:16.666667%;}}@media (min-width:1200px){.mui-1jcswl9{-webkit-flex-basis:16.666667%;-ms-flex-preferred-size:16.666667%;flex-basis:16.666667%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:16.666667%;}}@media (min-width:1536px){.mui-1jcswl9{-webkit-flex-basis:16.666667%;-ms-flex-preferred-size:16.666667%;flex-basis:16.666667%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:16.666667%;}}.mui-1xmwsk2{margin:0;color:#000000;font-size:12px;font-weight:400;line-height:15px;font-family:Spezia,sans-serif;letter-spacing:0.25px;color:#2A8EFD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}@media (max-width:600px){.mui-1xmwsk2{font-size:10px;line-height:12px;}}.mui-1a9nspn{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;margin-top:24px;margin-bottom:24px;}.mui-1amffs8{margin:0;color:#000000;font-size:24px;font-weight:400;font-family:Spezia,sans-serif;line-height:30px;color:#E1E2E9;}@media (max-width:600px){.mui-1amffs8{font-size:20px;line-height:25px;}}.mui-d0uhtl{margin-left:16px;}.mui-11ff4y3 path{fill:#2A8EFD;}.mui-lm0mo7{box-sizing:border-box;display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-box-flex-wrap:wrap;-webkit-flex-wrap:wrap;-ms-flex-wrap:wrap;flex-wrap:wrap;width:100%;-webkit-flex-direction:row;-ms-flex-direction:row;flex-direction:row;gap:16px;-webkit-box-pack:justify;-webkit-justify-content:space-between;justify-content:space-between;margin-left:0px;-webkit-box-flex-wrap:nowrap;-webkit-flex-wrap:nowrap;-ms-flex-wrap:nowrap;flex-wrap:nowrap;}.mui-q9hp3s{border-width:1px;border-style:solid;border-color:#42464E;border-radius:8px;overflow:hidden;background-color:#191C20;}.mui-hdzoli{box-sizing:border-box;margin:0;-webkit-flex-direction:row;-ms-flex-direction:row;flex-direction:row;-webkit-flex-basis:33.333333%;-ms-flex-preferred-size:33.333333%;flex-basis:33.333333%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:33.333333%;border-width:1px;border-style:solid;border-color:#42464E;border-radius:8px;overflow:hidden;background-color:#191C20;}@media (min-width:600px){.mui-hdzoli{-webkit-flex-basis:33.333333%;-ms-flex-preferred-size:33.333333%;flex-basis:33.333333%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:33.333333%;}}@media (min-width:900px){.mui-hdzoli{-webkit-flex-basis:33.333333%;-ms-flex-preferred-size:33.333333%;flex-basis:33.333333%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:33.333333%;}}@media (min-width:1200px){.mui-hdzoli{-webkit-flex-basis:33.333333%;-ms-flex-preferred-size:33.333333%;flex-basis:33.333333%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:33.333333%;}}@media (min-width:1536px){.mui-hdzoli{-webkit-flex-basis:33.333333%;-ms-flex-preferred-size:33.333333%;flex-basis:33.333333%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:33.333333%;}}.mui-1aine2r{background-color:#1D2024;border-bottom-width:1px;border-bottom-style:solid;border-bottom-color:#42464E;padding:18px 24px;margin:0;display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-box-pack:start;-ms-flex-pack:start;-webkit-justify-content:flex-start;justify-content:flex-start;}.mui-2wz1hu{box-sizing:border-box;margin:0;-webkit-flex-direction:row;-ms-flex-direction:row;flex-direction:row;-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;background-color:#1D2024;border-bottom-width:1px;border-bottom-style:solid;border-bottom-color:#42464E;padding:18px 24px;margin:0;display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-box-pack:start;-ms-flex-pack:start;-webkit-justify-content:flex-start;justify-content:flex-start;}@media (min-width:600px){.mui-2wz1hu{-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;}}@media (min-width:900px){.mui-2wz1hu{-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;}}@media (min-width:1200px){.mui-2wz1hu{-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;}}@media (min-width:1536px){.mui-2wz1hu{-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;}}.mui-1ka6afz{margin:0;color:#000000;font-size:14px;font-weight:500;font-family:Spezia Mono,sans-serif;line-height:20px;text-transform:uppercase;color:#E1E2E9;}@media (max-width:600px){.mui-1ka6afz{font-size:10px;line-height:12px;}}.mui-1a6ealx{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-align-items:flex-start;-webkit-box-align:flex-start;-ms-flex-align:flex-start;align-items:flex-start;height:180px;padding:24px!important;}.mui-1vamkkl{box-sizing:border-box;margin:0;-webkit-flex-direction:row;-ms-flex-direction:row;flex-direction:row;-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-align-items:flex-start;-webkit-box-align:flex-start;-ms-flex-align:flex-start;align-items:flex-start;height:180px;padding:24px!important;}@media (min-width:600px){.mui-1vamkkl{-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;}}@media (min-width:900px){.mui-1vamkkl{-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;}}@media (min-width:1200px){.mui-1vamkkl{-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;}}@media (min-width:1536px){.mui-1vamkkl{-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;}}.mui-8atqhb{width:100%;}.mui-j77svj{margin:0;color:#000000;font-size:12px;font-weight:500;font-family:Spezia Mono,sans-serif;line-height:20px;text-transform:uppercase;color:#E1E2E9;text-transform:uppercase;}@media (max-width:600px){.mui-j77svj{font-size:10px;line-height:12px;}}.mui-rbyfcn{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;min-height:220px;height:180px;border-top-width:1px;border-top-style:solid;border-top-color:#42464E;padding:24px!important;}.mui-1drpjxy{box-sizing:border-box;margin:0;-webkit-flex-direction:row;-ms-flex-direction:row;flex-direction:row;-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;min-height:220px;height:180px;border-top-width:1px;border-top-style:solid;border-top-color:#42464E;padding:24px!important;}@media (min-width:600px){.mui-1drpjxy{-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;}}@media (min-width:900px){.mui-1drpjxy{-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;}}@media (min-width:1200px){.mui-1drpjxy{-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;}}@media (min-width:1536px){.mui-1drpjxy{-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;}}.mui-6408au{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-flex-direction:column;-ms-flex-direction:column;flex-direction:column;justify-items:center;-webkit-align-items:space-between;-webkit-box-align:space-between;-ms-flex-align:space-between;align-items:space-between;width:100%;}.mui-j7qwjs{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-flex-direction:column;-ms-flex-direction:column;flex-direction:column;}.mui-19ldw5v{margin-top:8px;margin-bottom:16px;}.mui-1lz028s{margin:0;color:#000000;font-size:32px;font-weight:400;font-family:Spezia,sans-serif;line-height:26px;color:#2A8EFD;}@media (max-width:600px){.mui-1lz028s{font-size:10px;line-height:12px;}}.mui-1ofqig9{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-flex-direction:column;-ms-flex-direction:column;flex-direction:column;width:100%;}.mui-1q9b97s{margin:0;color:#000000;font-size:16px;font-weight:400;font-family:Spezia,sans-serif;letter-spacing:0.25px;line-height:20px;color:#2A8EFD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}@media (max-width:600px){.mui-1q9b97s{font-size:14px;line-height:17px;}}.mui-isbt42{box-sizing:border-box;display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-box-flex-wrap:wrap;-webkit-flex-wrap:wrap;-ms-flex-wrap:wrap;flex-wrap:wrap;width:100%;-webkit-flex-direction:row;-ms-flex-direction:row;flex-direction:row;margin-top:-16px;width:calc(100% + 16px);margin-left:-16px;}.mui-isbt42>.MuiGrid-item{padding-top:16px;}.mui-isbt42>.MuiGrid-item{padding-left:16px;}.mui-1s50f5r{box-sizing:border-box;margin:0;-webkit-flex-direction:row;-ms-flex-direction:row;flex-direction:row;-webkit-flex-basis:50%;-ms-flex-preferred-size:50%;flex-basis:50%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:50%;}@media (min-width:600px){.mui-1s50f5r{-webkit-flex-basis:50%;-ms-flex-preferred-size:50%;flex-basis:50%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:50%;}}@media (min-width:900px){.mui-1s50f5r{-webkit-flex-basis:50%;-ms-flex-preferred-size:50%;flex-basis:50%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:50%;}}@media (min-width:1200px){.mui-1s50f5r{-webkit-flex-basis:50%;-ms-flex-preferred-size:50%;flex-basis:50%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:50%;}}@media (min-width:1536px){.mui-1s50f5r{-webkit-flex-basis:50%;-ms-flex-preferred-size:50%;flex-basis:50%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:50%;}}.mui-fkg9yc{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-flex-direction:column;-ms-flex-direction:column;flex-direction:column;justify-items:center;width:100%;}.mui-15j76c0{box-sizing:border-box;margin:0;-webkit-flex-direction:row;-ms-flex-direction:row;flex-direction:row;-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;}@media (min-width:600px){.mui-15j76c0{-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;}}@media (min-width:900px){.mui-15j76c0{-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;}}@media (min-width:1200px){.mui-15j76c0{-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;}}@media (min-width:1536px){.mui-15j76c0{-webkit-flex-basis:100%;-ms-flex-preferred-size:100%;flex-basis:100%;-webkit-box-flex:0;-webkit-flex-grow:0;-ms-flex-positive:0;flex-grow:0;max-width:100%;}}.mui-1wxaqej{box-sizing:border-box;margin:0;-webkit-flex-direction:row;-ms-flex-direction:row;flex-direction:row;}.mui-pgugi9{background-color:#282A2F;border-radius:6px;padding:6px;margin-right:6px;display:inline-block;padding-top:8px;color:#2A8EFD;}.mui-mfjk8s{margin:0;color:#000000;font-size:16px;font-weight:400;font-family:Spezia,sans-serif;letter-spacing:0.25px;line-height:20px;background-color:#282A2F;border-radius:6px;padding:6px;margin-right:6px;display:inline-block;padding-top:8px;color:#2A8EFD;}@media (max-width:600px){.mui-mfjk8s{font-size:14px;line-height:17px;}}.mui-zhbgj8{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-box-pack:justify;-webkit-justify-content:space-between;justify-content:space-between;-webkit-align-items:center;-webkit-box-align:center;-ms-flex-align:center;align-items:center;padding:16px;}.mui-xck77d{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;-webkit-box-flex:1;-webkit-flex-grow:1;-ms-flex-positive:1;flex-grow:1;-webkit-flex-direction:row;-ms-flex-direction:row;flex-direction:row;}.mui-1xr92y4{margin:0;color:#000000;font-size:16px;font-weight:500;font-family:Spezia,sans-serif;line-height:20px;color:#B5B7BE;}@media (max-width:600px){.mui-1xr92y4{font-size:14px;line-height:17px;}}.mui-mr86mw{-webkit-text-decoration:none;text-decoration:none;}.mui-8w58ru{margin:0;font:inherit;color:#2A8EFD;margin-left:8px;-webkit-text-decoration:none;text-decoration:none;}</style><script src="https://blog.vllm.ai/guidellm/ui/v0.5.0/_next/static/chunks/polyfills-c67a75d1b6f99dc8.js" noModule=""></script></head><body><div><div><div class="MuiBox-root mui-okvjfn"><div style="margin:0 auto;padding:0 16px;max-width:1440px;box-sizing:border-box;height:100%;width:100%"><div class="MuiBox-root mui-1sf3xto"><h6 class="MuiTypography-root MuiTypography-subtitle2 mui-1miunce">GuideLLM</h6><h4 class="MuiTypography-root MuiTypography-h4 mui-liujld">Workload Report</h4><div class="MuiGrid-root MuiGrid-container mui-1d1z477"><div class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-5 mui-1d9l5zu"><div class="MuiBox-root mui-krfyoj"><span class="MuiTypography-root MuiTypography-overline2 mui-hw9iw8">Model</span><div class="MuiBox-root mui-1jz7ivr"><span class="MuiTypography-root MuiTypography-metric2 mui-7bmlev" aria-label="N/A">N/A</span></div></div></div><div class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-2 mui-1jcswl9"><div class="MuiBox-root mui-krfyoj"><span class="MuiTypography-root MuiTypography-overline2 mui-hw9iw8">Time Stamp</span><div class="MuiBox-root mui-1jz7ivr"><span class="MuiTypography-root MuiTypography-caption mui-1xmwsk2">n/a</span></div></div></div></div></div></div><div style="margin:0 auto;padding:0 16px;max-width:1440px;box-sizing:border-box;height:100%;width:100%"><div class="MuiBox-root mui-1a9nspn"><h5 class="MuiTypography-root MuiTypography-h5 mui-1amffs8">Workload Details</h5><div class="MuiBox-root mui-d0uhtl"><span color="#2A8EFD" class="mui-11ff4y3"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="25" fill="none"><path fill="#2A8EFD" d="M11 17.4h2v-6h-2zm1-8q.424 0 .713-.287A.97.97 0 0 0 13 8.4a.97.97 0 0 0-.287-.712A.97.97 0 0 0 12 7.4a.97.97 0 0 0-.713.288A.97.97 0 0 0 11 8.4q0 .424.287.713.288.287.713.287m0 13a9.7 9.7 0 0 1-3.9-.787 10.1 10.1 0 0 1-3.175-2.138q-1.35-1.35-2.137-3.175A9.7 9.7 0 0 1 2 12.4q0-2.074.788-3.9a10.1 10.1 0 0 1 2.137-3.175q1.35-1.35 3.175-2.137A9.7 9.7 0 0 1 12 2.4q2.075 0 3.9.788a10.1 10.1 0 0 1 3.175 2.137q1.35 1.35 2.137 3.175A9.7 9.7 0 0 1 22 12.4a9.7 9.7 0 0 1-.788 3.9 10.1 10.1 0 0 1-2.137 3.175q-1.35 1.35-3.175 2.137a9.7 9.7 0 0 1-3.9.788m0-2q3.35 0 5.675-2.325T20 12.4t-2.325-5.675T12 4.4 6.325 6.725 4 12.4t2.325 5.675T12 20.4"></path></svg></span></div></div><div class="MuiGrid-root MuiGrid-container mui-lm0mo7" data-id="workload-details"><div class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-4 mui-hdzoli"><div class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 mui-2wz1hu"><span class="MuiTypography-root MuiTypography-overline1 mui-1ka6afz">Prompt</span></div><div class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 mui-1vamkkl" data-id="top-cell"><div class="MuiBox-root mui-8atqhb"><span class="MuiTypography-root MuiTypography-overline2 mui-j77svj">Sample Prompt</span><!--$!--><template data-dgst="DYNAMIC_SERVER_USAGE"></template><!--/$--></div></div><div class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 mui-1drpjxy" data-id="bottom-cell"><div class="MuiBox-root mui-6408au"><div class="MuiBox-root mui-j7qwjs"><div class="MuiBox-root mui-0"><span class="MuiTypography-root MuiTypography-overline2 mui-hw9iw8">Mean Prompt Length</span></div><div class="MuiBox-root mui-19ldw5v"><span class="MuiTypography-root MuiTypography-metric1 mui-1lz028s">0 tokens</span></div></div><div style="width:100%;height:85px"><div style="width:100%;height:100%"><div style="width:0px;height:0px;position:relative"><div style="width:100%;height:100%"></div></div></div></div></div></div></div><div class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-4 mui-hdzoli"><div class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 mui-2wz1hu"><span class="MuiTypography-root MuiTypography-overline1 mui-1ka6afz">Server</span></div><div class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 mui-1vamkkl" data-id="top-cell"><div class="MuiBox-root mui-1ofqig9"><div class="MuiBox-root mui-krfyoj"><span class="MuiTypography-root MuiTypography-overline2 mui-hw9iw8">Target</span><div class="MuiBox-root mui-1jz7ivr"><p class="MuiTypography-root MuiTypography-body2 mui-1q9b97s"></p></div></div><div class="MuiGrid-root MuiGrid-container MuiGrid-spacing-xs-2 mui-isbt42"><div class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-6 mui-1s50f5r"><div class="MuiBox-root mui-krfyoj"><span class="MuiTypography-root MuiTypography-overline2 mui-hw9iw8">Type</span><div class="MuiBox-root mui-1jz7ivr"><p class="MuiTypography-root MuiTypography-body2 mui-1q9b97s"></p></div></div></div><div class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-6 mui-1s50f5r"><div class="MuiBox-root mui-krfyoj"><span class="MuiTypography-root MuiTypography-overline2 mui-hw9iw8">Port</span><div class="MuiBox-root mui-1jz7ivr"><p class="MuiTypography-root MuiTypography-body2 mui-1q9b97s"></p></div></div></div></div></div></div><div class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 mui-1drpjxy" data-id="bottom-cell"><div class="MuiBox-root mui-fkg9yc"><div class="MuiGrid-root MuiGrid-container MuiGrid-spacing-xs-2 mui-isbt42"><div class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 mui-15j76c0"><div class="MuiBox-root mui-krfyoj"><span class="MuiTypography-root MuiTypography-overline2 mui-hw9iw8">Number of Benchmarks</span><div class="MuiBox-root mui-1jz7ivr"><p class="MuiTypography-root MuiTypography-body2 mui-1q9b97s">0</p></div></div></div><div class="MuiGrid-root MuiGrid-item mui-1wxaqej"><span class="MuiTypography-root MuiTypography-overline2 mui-j77svj">Rate Type</span></div><div class="MuiGrid-root MuiGrid-item mui-1wxaqej"><p class="MuiTypography-root MuiTypography-body2 mui-mfjk8s"></p></div></div><div style="width:100%;height:85px"><div style="width:100%;height:100%"><div style="width:0px;height:0px;position:relative"><div style="width:100%;height:100%"></div></div></div></div></div></div></div><div class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-4 mui-hdzoli"><div class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 mui-2wz1hu"><span class="MuiTypography-root MuiTypography-overline1 mui-1ka6afz">Generated</span></div><div class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 mui-1vamkkl" data-id="top-cell"><div class="MuiBox-root mui-8atqhb"><span class="MuiTypography-root MuiTypography-overline2 mui-j77svj">Sample Generated</span><!--$!--><template data-dgst="DYNAMIC_SERVER_USAGE"></template><!--/$--></div></div><div class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 mui-1drpjxy" data-id="bottom-cell"><div class="MuiBox-root mui-6408au"><div class="MuiBox-root mui-j7qwjs"><div class="MuiBox-root mui-0"><span class="MuiTypography-root MuiTypography-overline2 mui-hw9iw8">Mean Generated Length</span></div><div class="MuiBox-root mui-19ldw5v"><span class="MuiTypography-root MuiTypography-metric1 mui-1lz028s">0 tokens</span></div></div><div style="width:100%;height:85px"><div style="width:100%;height:100%"><div style="width:0px;height:0px;position:relative"><div style="width:100%;height:100%"></div></div></div></div></div></div></div></div></div><div style="margin:0 auto;padding:0 16px;max-width:1440px;box-sizing:border-box;height:100%;width:100%"><footer class="MuiBox-root mui-zhbgj8"><div class="MuiBox-root mui-xck77d"><h6 class="MuiTypography-root MuiTypography-subtitle2 mui-1xr92y4">Got questions?</h6><a class="MuiTypography-root MuiTypography-inherit MuiLink-root MuiLink-underlineNone mui-8w58ru"><h6 class="MuiTypography-root MuiTypography-subtitle2 mui-1miunce">Send us a message on Slack</h6></a></div><div class="MuiBox-root mui-0"><img width="150" alt="guidellm logo" src="https://blog.vllm.ai/guidellm/ui/v0.5.0/_next/static/media/guidellm-logo-light.5a79cb09.png"/></div></footer></div></div></div></div><script src="https://blog.vllm.ai/guidellm/ui/v0.5.0/_next/static/chunks/webpack-e54cd4b97f33f8d0.js" async=""></script><script src="https://blog.vllm.ai/guidellm/ui/v0.5.0/_next/static/chunks/7fd0f9f1-e15a5055d2e17cc5.js" async=""></script><script src="https://blog.vllm.ai/guidellm/ui/v0.5.0/_next/static/chunks/9-ed9d05a85825ae4a.js" async=""></script><script src="https://blog.vllm.ai/guidellm/ui/v0.5.0/_next/static/chunks/main-app-7a0e04eef30508ed.js" async=""></script></body></html><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,"0:\"$L1\"\n"])</script><script>self.__next_f.push([1,"2:I{\"id\":\"8555\",\"chunks\":[\"272:static/chunks/webpack-e54cd4b97f33f8d0.js\",\"744:static/chunks/7fd0f9f1-e15a5055d2e17cc5.js\",\"9:static/chunks/9-ed9d05a85825ae4a.js\"],\"name\":\"\",\"async\":false}\n4:I{\"id\":\"20413\",\"chunks\":[\"272:static/chunks/webpack-e54cd4b97f33f8d0.js\",\"744:static/chunks/7fd0f9f1-e15a5055d2e17cc5.js\",\"9:static/chunks/9-ed9d05a85825ae4a.js\"],\"name\":\"\",\"async\":false}\n5:I{\"id\":\"4672\",\"chunks\":[\"160:static/chunks/app/not-found-f986739a233da77f.js\"],\"name\":\"\",\"async\":false}\n6:I{\"id\":\"97092\",\"chunks\":["])</script><script>self.__next_f.push([1,"\"272:static/chunks/webpack-e54cd4b97f33f8d0.js\",\"744:static/chunks/7fd0f9f1-e15a5055d2e17cc5.js\",\"9:static/chunks/9-ed9d05a85825ae4a.js\"],\"name\":\"\",\"async\":false}\n7:I{\"id\":\"56434\",\"chunks\":[\"272:static/chunks/webpack-e54cd4b97f33f8d0.js\",\"744:static/chunks/7fd0f9f1-e15a5055d2e17cc5.js\",\"9:static/chunks/9-ed9d05a85825ae4a.js\"],\"name\":\"\",\"async\":false}\n8:I{\"id\":\"93107\",\"chunks\":[\"272:static/chunks/webpack-e54cd4b97f33f8d0.js\",\"744:static/chunks/7fd0f9f1-e15a5055d2e17cc5.js\",\"9:static/chunks/9-ed9d05a85825ae4a"])</script><script>self.__next_f.push([1,".js\"],\"name\":\"\",\"async\":false}\n9:I{\"id\":\"96513\",\"chunks\":[\"774:static/chunks/framework-ab6df94180385e21.js\",\"326:static/chunks/326-209f780eaf297232.js\",\"931:static/chunks/app/page-e27e0c51a2411424.js\"],\"name\":\"default\",\"async\":true}\n"])</script><script>self.__next_f.push([1,"1:[[],[\"$\",\"$L2\",null,{\"assetPrefix\":\"https://blog.vllm.ai/guidellm/ui/v0.5.0\",\"initialCanonicalUrl\":\"/\",\"initialTree\":[\"\",{\"children\":[\"__PAGE__\",{}]},\"$undefined\",\"$undefined\",true],\"initialHead\":[\"$L3\",null],\"globalErrorComponent\":\"$4\",\"notFound\":[\"$\",\"html\",null,{\"lang\":\"en\",\"children\":[[\"$\",\"head\",null,{\"children\":[\"$\",\"script\",null,{\"dangerouslySetInnerHTML\":{\"__html\":\"window.runInfo = {}; window.workloadDetails = {}; window.benchmarks = {};\"}}]}],[\"$\",\"body\",null,{\"children\":[[],[\"$\",\"$L5\",null,{}]]}]]}],\"asNotFound\":false,\"children\":[[\"$\",\"html\",null,{\"lang\":\"en\",\"children\":[[\"$\",\"head\",null,{\"children\":[\"$\",\"script\",null,{\"dangerouslySetInnerHTML\":{\"__html\":\"window.runInfo = {}; window.workloadDetails = {}; window.benchmarks = {};\"}}]}],[\"$\",\"body\",null,{\"children\":[\"$\",\"$L6\",null,{\"parallelRouterKey\":\"children\",\"segmentPath\":[\"children\"],\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"loading\":\"$undefined\",\"loadingStyles\":\"$undefined\",\"hasLoading\":false,\"template\":[\"$\",\"$L7\",null,{}],\"templateStyles\":\"$undefined\",\"notFound\":[\"$\",\"$L5\",null,{}],\"notFoundStyles\":[],\"asNotFound\":false,\"childProp\":{\"current\":[[\"$\",\"$L8\",null,{\"propsForComponent\":{\"params\":{}},\"Component\":\"$9\"}],null],\"segment\":\"__PAGE__\"},\"styles\":[]}]}]]}],null]}]]\n"])</script><script>self.__next_f.push([1,"3:[[[\"$\",\"meta\",null,{\"charSet\":\"utf-8\"}],[\"$\",\"title\",null,{\"children\":\"GuideLLM\"}],[\"$\",\"meta\",null,{\"name\":\"description\",\"content\":\"LLM Benchmarking Tool\"}],null,null,[\"$\",\"link\",null,{\"rel\":\"manifest\",\"href\":\"https://blog.vllm.ai/guidellm/ui/v0.5.0/manifest.json\"}],null,null,null,null,null,[\"$\",\"meta\",null,{\"name\":\"viewport\",\"content\":\"width=device-width, initial-scale=1\"}],null,null,null,null,null,null,null,null,null,null,[]],[null,null,null,null],null,null,[null,null,null,null,null],null,null,null,null,[null,[[\"$\",\"link\",null,{\"rel\":\"icon\",\"href\":\"https://blog.vllm.ai/guidellm/ui/v0.5.0/favicon.png\"}]],[[\"$\",\"link\",null,{\"rel\":\"apple-touch-icon\",\"href\":\"https://blog.vllm.ai/guidellm/ui/v0.5.0/favicon-192x192.png\"}]],null]]\n"])</script>

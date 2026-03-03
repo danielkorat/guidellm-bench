@@ -1,9 +1,10 @@
 __pycache__/
 *.pyc
-guidellm_results/
-guidellm_sanity_results/
+results/
+sanity_results/
 bench_full.log
 bench_full.pid
 /tmp/
 nohup.out
 guidellm_bench.egg-info/
+.vscode/settings.json

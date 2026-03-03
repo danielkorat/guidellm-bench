@@ -13,10 +13,6 @@ from typing import Optional
 from .config import Config, PORT
 from .docker import _PREAMBLE
 
-# Temp directory for guidellm output files (ephemeral per benchmark run).
-_OUT_TMP = Path("/tmp/guidellm_out_tmp")
-
-
 def run_guidellm(
     cfg: Config,
     input_len: int,
@@ -43,8 +39,11 @@ def run_guidellm(
     Returns:
         Parsed benchmarks.json dict, or None on failure.
     """
-    shutil.rmtree(_OUT_TMP, ignore_errors=True)
-    _OUT_TMP.mkdir(parents=True, exist_ok=True)
+    # Scratch dir for guidellm output files — kept inside the run's log dir,
+    # never in /tmp, so results stay with the run even on unexpected exit.
+    out_tmp = log_path.parent / ".guidellm_out"
+    shutil.rmtree(out_tmp, ignore_errors=True)
+    out_tmp.mkdir(parents=True, exist_ok=True)
 
     # ---- data source ------------------------------------------------
     # dataset_path is a container-native path from prepare_aime_dataset().
@@ -84,7 +83,7 @@ def run_guidellm(
         *data_args,
         "--request-format /v1/completions",  # bypass chat template (critical for thinking models)
         *profile_args,
-        f"--output-dir {_OUT_TMP}",
+        f"--output-dir {out_tmp}",
         "--outputs json",
         "--outputs html",
         "--disable-console-interactive",
@@ -104,7 +103,7 @@ def run_guidellm(
         print(f"  guidellm exited with code {proc.returncode}", flush=True)
         return None
 
-    result_file = _OUT_TMP / "benchmarks.json"
+    result_file = out_tmp / "benchmarks.json"
     if not result_file.exists():
         print("  guidellm result file not found", flush=True)
         return None
@@ -113,13 +112,13 @@ def run_guidellm(
         return json.load(f)
 
 
-def copy_results(cfg_name: str, out_dir: Path) -> list[str]:
-    """Copy all guidellm output files from the temp dir to *out_dir*.
+def copy_results(cfg_name: str, out_dir: Path, out_tmp: Path) -> list[str]:
+    """Copy all guidellm output files from *out_tmp* to *out_dir*.
 
     Returns list of saved filenames.
     """
     saved = []
-    for src in sorted(_OUT_TMP.iterdir()):
+    for src in sorted(out_tmp.iterdir()):
         dest = out_dir / f"{cfg_name}_{src.name}"
         shutil.copy(src, dest)
         saved.append(dest.name)

@@ -1,0 +1,10 @@
+Results → guidellm_sanity_results/20260302_1845
+
+  AIME dataset: using cached /root/aime_2024_v2.jsonl
+
+1 configurations to benchmark
+
+
+============================================================
+[1/1]  Qwen_Qwen3-4B-Thinking-2507_tp4_quant-fp8
+============================================================

@@ -1,0 +1,12 @@
+Results → guidellm_sanity_results/20260302_1814
+
+  WARNING: AIME download failed (No module named 'datasets') — falling back to synthetic data
+  SKIP  Qwen/Qwen3-4B-Thinking-2507  tp=4  quant=none  eager=True: Qwen3-4B + no quant (fp8 is uniformly faster: lower TTFT/ITL/lat, higher TPS — verified 20260302)
+
+0 configurations to benchmark
+
+
+============================================================
+Finished:  0 succeeded  /  0 failed  /  0 total
+
+Results: guidellm_sanity_results/20260302_1814

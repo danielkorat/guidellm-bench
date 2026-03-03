@@ -31,7 +31,7 @@ FULL = dict(
     concurrency=16,
     num_prompts=20,   # 20 requests: first 2 (10%) warm-up, last 2 (10%) cool-down excluded
     max_model_len=16384,
-    results_dir="./guidellm_results",
+    results_dir="./results",
     timeout_startup=300,
 )
 
@@ -45,7 +45,7 @@ SANITY = dict(
     concurrency=4,
     num_prompts=4,
     max_model_len=2048,
-    results_dir="./guidellm_sanity_results",
+    results_dir="./sanity_results",
     timeout_startup=600,
 )
 

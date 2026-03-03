@@ -22,7 +22,7 @@ Benchmarking tool (`bench.py` entry point + `guidellm_bench/` package) that runs
 │   ├── dataset.py                # AIME 2024 dataset download and caching
 │   ├── benchmark.py              # run_guidellm() and copy_results()
 │   └── dashboard.py              # build_dashboard_html() and write_serve_script()
-├── guidellm_results/             # Created at runtime (full runs)
+├── results/                      # Created at runtime (full runs) — gitignored
 │   └── YYYYMMDD_HHMM/
 │       ├── {cfg_name}_benchmarks.json
 │       ├── {cfg_name}_benchmarks.html
@@ -30,7 +30,7 @@ Benchmarking tool (`bench.py` entry point + `guidellm_bench/` package) that runs
 │       ├── dashboard.html
 │       ├── serve_dashboard.sh
 │       └── logs/
-└── guidellm_sanity_results/      # Created at runtime (--sanity runs)
+└── sanity_results/               # Created at runtime (—sanity runs) — gitignored
 ```
 
 ## Technology Stack
@@ -257,18 +257,31 @@ out_dir = Path(results_dir) / ts
 
 Do **not** add new logic directly to `bench.py`.
 
-### 17. Self-Logging (bench.py writes its own log + pid)
+### 19. No /tmp for Logs or Temp Files
+**RULE**: Never redirect logs or write temp files to `/tmp`. Always use the run's result directory
+or a gitignored subdirectory of the repo.
+- Bench logs → `out_dir/bench.log` (self-logged by bench.py, see Rule 20)
+- guidellm scratch output → `out_dir/logs/.guidellm_out/` (benchmark.py creates per-run, auto-cleaned)
+- `nohup ./bench.py &` is sufficient — **do NOT** redirect to `/tmp/something.log`
+
+### 20. Result Directory Names
+**RULE**: Result directories are `results/` and `sanity_results/` (no `guidellm_` prefix).
+Both are gitignored.
+```
+results/YYYYMMDD_HHMM/        # full runs
+sanity_results/YYYYMMDD_HHMM/ # --sanity runs
+```
 **RULE**: After creating `out_dir`, `bench.py` tees stdout/stderr into `out_dir/bench.log` and writes its PID to `out_dir/bench.pid`. No external redirect is needed.
 ```bash
 # Correct:
 nohup ./bench.py &
-# Log and pid land in guidellm_results/YYYYMMDD_HHMM/
+# Log and pid land in results/YYYYMMDD_HHMM/
 
 # WRONG (old pattern):
 nohup ./bench.py > bench_full.log 2>&1 & echo $! > bench_full.pid
 ```
 
-### 18. XPU Kernel Registration Hang — Automatic Recovery
+### 18. XPU Kernel Registration Hang — Reboot the Host
 **RULE**: When the vLLM server log shows `OperatorEntry.cpp:208` kernel override warnings followed
 by repeated `Still waiting... Xs elapsed` health-check messages, the XPU driver state inside
 the container is corrupted and the server will **never** become healthy.
@@ -278,46 +291,14 @@ the container is corrupted and the server will **never** become healthy.
 - If `OperatorEntry.cpp:208` is present AND ≥120s have elapsed with no healthy response,
   it raises `XpuKernelHangError`.
 - The container-side bench.py catches this and exits with **code 42**.
-- The host-side re-exec guard detects exit code 42 and:
-  1. Backs up the patched guidellm package from the corrupt container
-  2. `docker rm -f <container>`
-  3. `docker run ...` — recreates with identical args
-  4. Restores the guidellm package into the fresh container
-  5. Adds `--resume` to skip already-completed configs
-  6. Loops — re-launches bench.py in the new container
+- The host-side re-exec guard detects exit code 42, prints a warning, and calls `reboot`.
 
-**Manual recovery** (if the automatic path itself fails):
+After reboot, resume manually:
 ```bash
-# 1. Kill the stuck bench.py
-kill $(cat guidellm_results/YYYYMMDD_HHMM/bench.pid 2>/dev/null) 2>/dev/null
-pkill -f bench.py
-
-# 2. Remove and recreate the container
-docker rm -f vllm-0.14    # or lsv-container for --ep runs
-docker run -td --privileged --net=host --device=/dev/dri \
-  -v /dev/dri/by-path:/dev/dri/by-path \
-  -v /root/.cache/huggingface:/root/.cache/huggingface \
-  -v /root/dkorat/:/root/ --shm-size=10g \
-  --name=vllm-0.14 --entrypoint /bin/bash intel/vllm:0.14.1-xpu
-
-# 3. Re-install deps and resume
-docker exec vllm-0.14 bash -c \
-  "echo /root/guidellm-bench > /usr/local/lib/python3.12/dist-packages/guidellm_bench_dev.pth"
-nohup ./bench.py --resume &
+./bench.py --resume   # picks up the latest run dir automatically
 ```
 
-If `docker rm -f` keeps failing (container fully frozen at kernel level), use rename instead:
-```bash
-docker rename vllm-0.14 vllm-0.14-dead
-docker run -td --privileged --net=host --device=/dev/dri \
-  -v /dev/dri/by-path:/dev/dri/by-path \
-  -v /root/.cache/huggingface:/root/.cache/huggingface \
-  -v /root/dkorat/:/root/ --shm-size=10g \
-  --name=vllm-0.14 --entrypoint /bin/bash intel/vllm:0.14.1-xpu
-```
-The automatic recovery does this rename fallback automatically after 3 failed `rm -f` attempts.
-
-Do NOT attempt host reboot unless container recreation also fails.
+Do NOT attempt container recreation — D-state vllm processes block `docker rm -f` even with SIGKILL.
 
 ## Default Configuration
 
@@ -354,14 +335,14 @@ Do NOT attempt host reboot unless container recreation also fails.
 ```bash
 # Quick sanity check
 ./bench.py --sanity
-# Logs → ./guidellm_sanity_results/YYYYMMDD_HHMM/bench.log
-# PID  → ./guidellm_sanity_results/YYYYMMDD_HHMM/bench.pid
+# Logs → ./sanity_results/YYYYMMDD_HHMM/bench.log
+# PID  → ./sanity_results/YYYYMMDD_HHMM/bench.pid
 
 # Full benchmark suite (background — self-logs; no redirect needed)
 nohup ./bench.py &
 
 # Resume an interrupted run (skips configs with existing _benchmarks.json)
-./bench.py --resume guidellm_results/YYYYMMDD_HHMM
+./bench.py --resume results/YYYYMMDD_HHMM
 # Or: resume the latest run automatically
 ./bench.py --resume
 
@@ -379,13 +360,13 @@ nohup ./bench.py &
 python3 -c "
 from bench import build_dashboard_html
 from pathlib import Path
-out_dir = Path('guidellm_results/YYYYMMDD_HHMM')
+out_dir = Path('results/YYYYMMDD_HHMM')
 succeeded = ['model_tp4_quant-none_eager-true']
 build_dashboard_html(out_dir, succeeded)
 "
 
 # Serve dashboard
-bash guidellm_results/YYYYMMDD_HHMM/serve_dashboard.sh
+bash results/YYYYMMDD_HHMM/serve_dashboard.sh
 ```
 
 ## Known Issues
@@ -402,7 +383,7 @@ bash guidellm_results/YYYYMMDD_HHMM/serve_dashboard.sh
 
 ---
 
-**Last Updated**: March 3, 2026 — Rule 18: XPU hang recovery is now fully automatic (exit code 42, host re-exec guard recreates container and resumes); Lesson 8 corrected  
+**Last Updated**: March 3, 2026 — Rule 18 updated (reboot host on exit 42, not container recreation); Rules 19-20 added (no /tmp, result dir names); result dirs renamed to `results/` and `sanity_results/`  
 **Primary Maintainer**: Daniel Korat, Intel
 
 ---
@@ -420,7 +401,7 @@ Mistakes that happened once and must not repeat:
 | 5 | Tried to upgrade system pip inside container (`RECORD file not found`) | Skip `pip install --upgrade pip` inside the vLLM container; the bundled pip is sufficient |
 | 6 | `SANITY.timeout_startup=180` too short — vLLM XPU JIT on first load takes >3 min | Use `timeout_startup=600` for both FULL and SANITY |
 | 7 | Log and pid files saved in repo root via `nohup ./bench.py > bench.log` | `bench.py` self-logs into `out_dir/bench.log`; just run `nohup ./bench.py &` (Rule 16) |
-| 8 | vLLM server hangs after XPU kernel registration warnings (`OperatorEntry.cpp:208 Warning: Overriding a previously registered kernel`) followed by `Still waiting... Xs elapsed` and never reaches `/health` | XPU driver state inside the container is corrupted. **Remove and re-create the container** (`docker rm -f <container>` + `docker run ...`), re-install deps, then `./bench.py --resume`. See Rule 18. Reboot the host only if container recreation also fails. |
+| 8 | vLLM server hangs after XPU kernel registration warnings (`OperatorEntry.cpp:208 Warning: Overriding a previously registered kernel`) followed by `Still waiting... Xs elapsed` and never reaches `/health` | XPU driver state is corrupted; D-state processes block even `docker rm -f`. **Reboot the host** (`subprocess.call(['reboot'])` — automatic on exit 42). Resume with `./bench.py --resume` after reboot. See Rule 18. |
 | 9 | Named AIME JSONL column `output_tokens` — models generated only 16 tokens | Column must be `output_tokens_count` (guidellm default); `output_tokens` is not mapped to `max_tokens` in the completions body, leaving vLLM's default of 16. Cache path is `/root/aime_2024_v2.jsonl` (container) = `/root/dkorat/aime_2024_v2.jsonl` (host, volume-backed). |
 | 10 | Dashboard showed 0 for TTFT/ITL/req/s/tok/s | `b['metrics']` aggregates are zero-filled in guidellm v0.6; must compute medians from `b['requests']['successful'][*]` per-request fields in `_extract_sweep_points`. |
 | 11 | gpt-oss-20b + tp=2 crashed with OOM (UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY), guidellm reported 30 "successful" requests with empty output | Added `gpt-oss-20b + tp<4` skip rule — model requires at least 4 GPUs |

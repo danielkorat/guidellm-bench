@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Benchmark Dashboard — Intel Arc Pro B60 (multi-gpu)</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <style>
+    body { background:#f8f9fa; }
+    .nav-tabs .nav-link { font-size:.82rem; padding:.35rem .7rem; }
+    .card-header { background:#e9ecef; font-size:.88rem; }
+  </style>
+</head>
+<body>
+<div class="container-fluid py-3">
+  <h4 class="mb-1 text-center fw-bold">Benchmark Dashboard — Intel Arc Pro B60 (multi-gpu)</h4>
+  <p class="text-center text-muted mb-1" style="font-size:.82rem">2 Mar 2026 19:17 &nbsp;|&nbsp; Dataset: AIME 2024 &nbsp;|&nbsp; 30 requests &nbsp;|&nbsp; ~91 input tok &nbsp;|&nbsp; ~1024 output tok &nbsp;|&nbsp; profile: synchronous &nbsp;|&nbsp; format: /v1/completions &nbsp;|&nbsp; max-seconds: 900 &nbsp;|&nbsp; max-errors: 5 &nbsp;|&nbsp; warmup/cooldown: 0.1/0.1</p>
+  <ul class="nav nav-tabs flex-wrap mb-0" id="mainTabs">
+    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-overview">&#128202; Overview</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-openai-gpt-oss-20b-tp4-quant-none">gpt-oss-20b_tp4_quant-none</a></li>
+<li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-Qwen-Qwen3-30B-A3B-tp4-quant-fp8">Qwen3-30B-A3B_tp4_quant-fp8</a></li>
+<li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-Qwen-Qwen3-4B-Thinking-2507-tp2-quant-fp8">Qwen3-4B-Thinking-2507_tp2_quant-fp8</a></li>
+<li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-Qwen-Qwen3-4B-Thinking-2507-tp4-quant-fp8">Qwen3-4B-Thinking-2507_tp4_quant-fp8</a></li>
+
+  </ul>
+  <div class="tab-content border border-top-0 rounded-bottom bg-white p-3">
+    <div class="tab-pane fade show active" id="tab-overview">
+  <div class="row g-4 mt-2">
+    <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">TTFT (ms) &mdash; median</div><div class="card-body"><canvas id="c-bar-ttft"></canvas></div></div></div>
+    <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">ITL (ms) &mdash; median</div><div class="card-body"><canvas id="c-bar-itl"></canvas></div></div></div>
+    <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">Throughput req/s</div><div class="card-body"><canvas id="c-bar-rps"></canvas></div></div></div>
+    <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">Output tok/s</div><div class="card-body"><canvas id="c-bar-tps"></canvas></div></div></div>
+    <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">Model Weights Memory (GiB, all devices)</div><div class="card-body"><canvas id="c-bar-mem"></canvas></div></div></div>
+    <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">TTFT (ms) vs Concurrency &mdash; sweep</div><div class="card-body"><canvas id="c-line-ttft" style="max-height:260px"></canvas></div></div></div>
+    <div class="col-12"><div class="card shadow-sm"><div class="card-header fw-bold">Throughput (req/s) vs Concurrency &mdash; sweep</div><div class="card-body"><canvas id="c-line-rps" style="max-height:260px"></canvas></div></div></div>
+  </div>
+</div>
+    <div class="tab-pane fade" id="tab-openai-gpt-oss-20b-tp4-quant-none">
+  <h6 class="mt-3 mb-2 fw-bold">openai_gpt-oss-20b_tp4_quant-none</h6>
+  <div class="row g-3">
+    <div class="col-md-4">
+      <table class="table table-sm table-bordered table-hover">
+        <thead><tr><th>Metric</th><th>Median</th></tr></thead>
+        <tbody><tr><th class="text-end pe-3">TTFT (ms)</th><td><strong>48.1</strong></td></tr><tr><th class="text-end pe-3">ITL (ms)</th><td><strong>29.9</strong></td></tr><tr><th class="text-end pe-3">Latency (s)</th><td><strong>30.7</strong></td></tr><tr><th class="text-end pe-3">Req/s</th><td><strong>0.0326</strong></td></tr><tr><th class="text-end pe-3">Output tok/s</th><td><strong>33.4</strong></td></tr><tr><th class="text-end pe-3">Concurrency</th><td><strong>1</strong></td></tr></tbody>
+      </table>
+    </div>
+    <div class="col-md-8">
+      <div class="row g-2">
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">TTFT (ms) vs Concurrency</div><div class="card-body p-2"><canvas id="cfg-0-ttft"></canvas></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">ITL (ms) vs Concurrency</div><div class="card-body p-2"><canvas id="cfg-0-itl"></canvas></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Req/s vs Concurrency</div><div class="card-body p-2"><canvas id="cfg-0-rps"></canvas></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Output tok/s vs Concurrency</div><div class="card-body p-2"><canvas id="cfg-0-tps"></canvas></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">GPU Memory Used (MiB) over Time</div><div class="card-body p-2"><p class="text-muted small m-1">No xpu-smi data</p></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">GPU Utilization (%) over Time</div><div class="card-body p-2"><p class="text-muted small m-1">No xpu-smi data</p></div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  const C = [1.0];
+  const col = "#4e79a7";
+  function cfgLine(id, vals, yLabel) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    new Chart(el, {
+      type: 'line',
+      data: { labels: C, datasets: [{
+        label: yLabel, data: vals, borderColor: col,
+        backgroundColor: col + '33', pointRadius: 4, tension: 0.3, spanGaps: true
+      }]},
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { title: { display: true, text: 'Concurrency' } },
+          y: { beginAtZero: false, title: { display: true, text: yLabel } }
+        }
+      }
+    });
+  }
+  cfgLine("cfg-0-ttft", [48.11549186706543],        "TTFT (ms)");
+  cfgLine("cfg-0-itl",  [29.939928012859085],         "ITL (ms)");
+  cfgLine("cfg-0-rps",  [0.03259761139390313], "Req/s");
+  cfgLine("cfg-0-tps",  [33.37995429834464], "Output tok/s");
+  (function() {
+    function gpuLine(id, datasets, yLabel) {
+      const el = document.getElementById(id);
+      if (!el || !datasets.length) return;
+      new Chart(el, {
+        type: 'line', data: { datasets },
+        options: {
+          parsing: { xAxisKey: 'x', yAxisKey: 'y' },
+          scales: {
+            x: { type: 'linear', title: { display: true, text: 'Elapsed (s)' } },
+            y: { beginAtZero: false, title: { display: true, text: yLabel } }
+          },
+          plugins: { legend: { display: true, position: 'top' } }
+        }
+      });
+    }
+    gpuLine("cfg-0-gmem",  [],  "Memory (MiB)");
+    gpuLine("cfg-0-gutil", [], "Util (%)");
+  })();
+})();
+</script>
+<div class="tab-pane fade" id="tab-Qwen-Qwen3-30B-A3B-tp4-quant-fp8">
+  <h6 class="mt-3 mb-2 fw-bold">Qwen_Qwen3-30B-A3B_tp4_quant-fp8</h6>
+  <div class="row g-3">
+    <div class="col-md-4">
+      <table class="table table-sm table-bordered table-hover">
+        <thead><tr><th>Metric</th><th>Median</th></tr></thead>
+        <tbody><tr><th class="text-end pe-3">TTFT (ms)</th><td><strong>58.1</strong></td></tr><tr><th class="text-end pe-3">ITL (ms)</th><td><strong>38.7</strong></td></tr><tr><th class="text-end pe-3">Latency (s)</th><td><strong>39.7</strong></td></tr><tr><th class="text-end pe-3">Req/s</th><td><strong>0.0252</strong></td></tr><tr><th class="text-end pe-3">Output tok/s</th><td><strong>25.8</strong></td></tr><tr><th class="text-end pe-3">Concurrency</th><td><strong>1</strong></td></tr></tbody>
+      </table>
+    </div>
+    <div class="col-md-8">
+      <div class="row g-2">
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">TTFT (ms) vs Concurrency</div><div class="card-body p-2"><canvas id="cfg-1-ttft"></canvas></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">ITL (ms) vs Concurrency</div><div class="card-body p-2"><canvas id="cfg-1-itl"></canvas></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Req/s vs Concurrency</div><div class="card-body p-2"><canvas id="cfg-1-rps"></canvas></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Output tok/s vs Concurrency</div><div class="card-body p-2"><canvas id="cfg-1-tps"></canvas></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">GPU Memory Used (MiB) over Time</div><div class="card-body p-2"><p class="text-muted small m-1">No xpu-smi data</p></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">GPU Utilization (%) over Time</div><div class="card-body p-2"><p class="text-muted small m-1">No xpu-smi data</p></div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  const C = [1.0];
+  const col = "#f28e2b";
+  function cfgLine(id, vals, yLabel) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    new Chart(el, {
+      type: 'line',
+      data: { labels: C, datasets: [{
+        label: yLabel, data: vals, borderColor: col,
+        backgroundColor: col + '33', pointRadius: 4, tension: 0.3, spanGaps: true
+      }]},
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { title: { display: true, text: 'Concurrency' } },
+          y: { beginAtZero: false, title: { display: true, text: yLabel } }
+        }
+      }
+    });
+  }
+  cfgLine("cfg-1-ttft", [58.10093879699707],        "TTFT (ms)");
+  cfgLine("cfg-1-itl",  [38.69436563284866],         "ITL (ms)");
+  cfgLine("cfg-1-rps",  [0.0252104423484442], "Req/s");
+  cfgLine("cfg-1-tps",  [25.81549296480686], "Output tok/s");
+  (function() {
+    function gpuLine(id, datasets, yLabel) {
+      const el = document.getElementById(id);
+      if (!el || !datasets.length) return;
+      new Chart(el, {
+        type: 'line', data: { datasets },
+        options: {
+          parsing: { xAxisKey: 'x', yAxisKey: 'y' },
+          scales: {
+            x: { type: 'linear', title: { display: true, text: 'Elapsed (s)' } },
+            y: { beginAtZero: false, title: { display: true, text: yLabel } }
+          },
+          plugins: { legend: { display: true, position: 'top' } }
+        }
+      });
+    }
+    gpuLine("cfg-1-gmem",  [],  "Memory (MiB)");
+    gpuLine("cfg-1-gutil", [], "Util (%)");
+  })();
+})();
+</script>
+<div class="tab-pane fade" id="tab-Qwen-Qwen3-4B-Thinking-2507-tp2-quant-fp8">
+  <h6 class="mt-3 mb-2 fw-bold">Qwen_Qwen3-4B-Thinking-2507_tp2_quant-fp8</h6>
+  <div class="row g-3">
+    <div class="col-md-4">
+      <table class="table table-sm table-bordered table-hover">
+        <thead><tr><th>Metric</th><th>Median</th></tr></thead>
+        <tbody><tr><th class="text-end pe-3">TTFT (ms)</th><td><strong>37.1</strong></td></tr><tr><th class="text-end pe-3">ITL (ms)</th><td><strong>19.6</strong></td></tr><tr><th class="text-end pe-3">Latency (s)</th><td><strong>20.1</strong></td></tr><tr><th class="text-end pe-3">Req/s</th><td><strong>0.0497</strong></td></tr><tr><th class="text-end pe-3">Output tok/s</th><td><strong>50.9</strong></td></tr><tr><th class="text-end pe-3">Concurrency</th><td><strong>1</strong></td></tr></tbody>
+      </table>
+    </div>
+    <div class="col-md-8">
+      <div class="row g-2">
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">TTFT (ms) vs Concurrency</div><div class="card-body p-2"><canvas id="cfg-2-ttft"></canvas></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">ITL (ms) vs Concurrency</div><div class="card-body p-2"><canvas id="cfg-2-itl"></canvas></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Req/s vs Concurrency</div><div class="card-body p-2"><canvas id="cfg-2-rps"></canvas></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Output tok/s vs Concurrency</div><div class="card-body p-2"><canvas id="cfg-2-tps"></canvas></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">GPU Memory Used (MiB) over Time</div><div class="card-body p-2"><p class="text-muted small m-1">No xpu-smi data</p></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">GPU Utilization (%) over Time</div><div class="card-body p-2"><p class="text-muted small m-1">No xpu-smi data</p></div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  const C = [1.0];
+  const col = "#e15759";
+  function cfgLine(id, vals, yLabel) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    new Chart(el, {
+      type: 'line',
+      data: { labels: C, datasets: [{
+        label: yLabel, data: vals, borderColor: col,
+        backgroundColor: col + '33', pointRadius: 4, tension: 0.3, spanGaps: true
+      }]},
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { title: { display: true, text: 'Concurrency' } },
+          y: { beginAtZero: false, title: { display: true, text: yLabel } }
+        }
+      }
+    });
+  }
+  cfgLine("cfg-2-ttft", [37.13667392730713],        "TTFT (ms)");
+  cfgLine("cfg-2-itl",  [19.633527491915377],         "ITL (ms)");
+  cfgLine("cfg-2-rps",  [0.049690717841284586], "Req/s");
+  cfgLine("cfg-2-tps",  [50.88329511876171], "Output tok/s");
+  (function() {
+    function gpuLine(id, datasets, yLabel) {
+      const el = document.getElementById(id);
+      if (!el || !datasets.length) return;
+      new Chart(el, {
+        type: 'line', data: { datasets },
+        options: {
+          parsing: { xAxisKey: 'x', yAxisKey: 'y' },
+          scales: {
+            x: { type: 'linear', title: { display: true, text: 'Elapsed (s)' } },
+            y: { beginAtZero: false, title: { display: true, text: yLabel } }
+          },
+          plugins: { legend: { display: true, position: 'top' } }
+        }
+      });
+    }
+    gpuLine("cfg-2-gmem",  [],  "Memory (MiB)");
+    gpuLine("cfg-2-gutil", [], "Util (%)");
+  })();
+})();
+</script>
+<div class="tab-pane fade" id="tab-Qwen-Qwen3-4B-Thinking-2507-tp4-quant-fp8">
+  <h6 class="mt-3 mb-2 fw-bold">Qwen_Qwen3-4B-Thinking-2507_tp4_quant-fp8</h6>
+  <div class="row g-3">
+    <div class="col-md-4">
+      <table class="table table-sm table-bordered table-hover">
+        <thead><tr><th>Metric</th><th>Median</th></tr></thead>
+        <tbody><tr><th class="text-end pe-3">TTFT (ms)</th><td><strong>38.5</strong></td></tr><tr><th class="text-end pe-3">ITL (ms)</th><td><strong>20.4</strong></td></tr><tr><th class="text-end pe-3">Latency (s)</th><td><strong>20.9</strong></td></tr><tr><th class="text-end pe-3">Req/s</th><td><strong>0.0479</strong></td></tr><tr><th class="text-end pe-3">Output tok/s</th><td><strong>49</strong></td></tr><tr><th class="text-end pe-3">Concurrency</th><td><strong>1</strong></td></tr></tbody>
+      </table>
+    </div>
+    <div class="col-md-8">
+      <div class="row g-2">
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">TTFT (ms) vs Concurrency</div><div class="card-body p-2"><canvas id="cfg-3-ttft"></canvas></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">ITL (ms) vs Concurrency</div><div class="card-body p-2"><canvas id="cfg-3-itl"></canvas></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Req/s vs Concurrency</div><div class="card-body p-2"><canvas id="cfg-3-rps"></canvas></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Output tok/s vs Concurrency</div><div class="card-body p-2"><canvas id="cfg-3-tps"></canvas></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">GPU Memory Used (MiB) over Time</div><div class="card-body p-2"><p class="text-muted small m-1">No xpu-smi data</p></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">GPU Utilization (%) over Time</div><div class="card-body p-2"><p class="text-muted small m-1">No xpu-smi data</p></div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  const C = [1.0];
+  const col = "#76b7b2";
+  function cfgLine(id, vals, yLabel) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    new Chart(el, {
+      type: 'line',
+      data: { labels: C, datasets: [{
+        label: yLabel, data: vals, borderColor: col,
+        backgroundColor: col + '33', pointRadius: 4, tension: 0.3, spanGaps: true
+      }]},
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { title: { display: true, text: 'Concurrency' } },
+          y: { beginAtZero: false, title: { display: true, text: yLabel } }
+        }
+      }
+    });
+  }
+  cfgLine("cfg-3-ttft", [38.54846954345703],        "TTFT (ms)");
+  cfgLine("cfg-3-itl",  [20.386192689077127],         "ITL (ms)");
+  cfgLine("cfg-3-rps",  [0.04785753964022034], "Req/s");
+  cfgLine("cfg-3-tps",  [49.00612446752554], "Output tok/s");
+  (function() {
+    function gpuLine(id, datasets, yLabel) {
+      const el = document.getElementById(id);
+      if (!el || !datasets.length) return;
+      new Chart(el, {
+        type: 'line', data: { datasets },
+        options: {
+          parsing: { xAxisKey: 'x', yAxisKey: 'y' },
+          scales: {
+            x: { type: 'linear', title: { display: true, text: 'Elapsed (s)' } },
+            y: { beginAtZero: false, title: { display: true, text: yLabel } }
+          },
+          plugins: { legend: { display: true, position: 'top' } }
+        }
+      });
+    }
+    gpuLine("cfg-3-gmem",  [],  "Memory (MiB)");
+    gpuLine("cfg-3-gutil", [], "Util (%)");
+  })();
+})();
+</script>
+
+  </div>
+</div>
+<script>
+const LABELS = ["gpt-oss-20b_tp4_quant-none", "Qwen3-30B-A3B_tp4_quant-fp8", "Qwen3-4B-Thinking-2507_tp2_quant-fp8", "Qwen3-4B-Thinking-2507_tp4_quant-fp8"];
+const PAL    = ["#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948", "#b07aa1", "#ff9da7", "#9c755f", "#bab0ac"];
+
+function bar(id, data, unit) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  new Chart(el, {
+    type: 'bar',
+    data: { labels: LABELS,
+             datasets: [{ label: unit, data,
+               backgroundColor: PAL.slice(0, data.length).map(c => c + 'cc'),
+               borderColor:     PAL.slice(0, data.length), borderWidth: 1 }] },
+    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+  });
+}
+
+function line(id, datasets) {
+  const el = document.getElementById(id);
+  if (!el || !datasets.length) return;
+  new Chart(el, {
+    type: 'line', data: { datasets },
+    options: {
+      parsing: { xAxisKey: 'x', yAxisKey: 'y' },
+      scales: {
+        x: { type: 'linear', title: { display: true, text: 'Concurrency' } },
+        y: { beginAtZero: false }
+      }
+    }
+  });
+}
+
+bar('c-bar-ttft', [48.11549186706543, 58.10093879699707, 37.13667392730713, 38.54846954345703],     'ms');
+bar('c-bar-itl',  [29.939928012859085, 38.69436563284866, 19.633527491915377, 20.386192689077127],      'ms');
+bar('c-bar-rps',  [0.03259761139390313, 0.0252104423484442, 0.049690717841284586, 0.04785753964022034], 'req/s');
+bar('c-bar-tps',  [33.37995429834464, 25.81549296480686, 50.88329511876171, 49.00612446752554], 'tok/s');
+bar('c-bar-mem',  [14.0, 29.12, 4.28, 4.44],  'GiB');
+line('c-line-ttft', [{"label": "gpt-oss-20b_tp4_quant-none", "data": [{"x": 1.0, "y": 48.11549186706543}], "borderColor": "#4e79a7", "backgroundColor": "#4e79a733", "tension": 0.3, "spanGaps": true}, {"label": "Qwen3-30B-A3B_tp4_quant-fp8", "data": [{"x": 1.0, "y": 58.10093879699707}], "borderColor": "#f28e2b", "backgroundColor": "#f28e2b33", "tension": 0.3, "spanGaps": true}, {"label": "Qwen3-4B-Thinking-2507_tp2_quant-fp8", "data": [{"x": 1.0, "y": 37.13667392730713}], "borderColor": "#e15759", "backgroundColor": "#e1575933", "tension": 0.3, "spanGaps": true}, {"label": "Qwen3-4B-Thinking-2507_tp4_quant-fp8", "data": [{"x": 1.0, "y": 38.54846954345703}], "borderColor": "#76b7b2", "backgroundColor": "#76b7b233", "tension": 0.3, "spanGaps": true}]);
+line('c-line-rps',  [{"label": "gpt-oss-20b_tp4_quant-none", "data": [{"x": 1.0, "y": 0.03259761139390313}], "borderColor": "#4e79a7", "backgroundColor": "#4e79a733", "tension": 0.3, "spanGaps": true}, {"label": "Qwen3-30B-A3B_tp4_quant-fp8", "data": [{"x": 1.0, "y": 0.0252104423484442}], "borderColor": "#f28e2b", "backgroundColor": "#f28e2b33", "tension": 0.3, "spanGaps": true}, {"label": "Qwen3-4B-Thinking-2507_tp2_quant-fp8", "data": [{"x": 1.0, "y": 0.049690717841284586}], "borderColor": "#e15759", "backgroundColor": "#e1575933", "tension": 0.3, "spanGaps": true}, {"label": "Qwen3-4B-Thinking-2507_tp4_quant-fp8", "data": [{"x": 1.0, "y": 0.04785753964022034}], "borderColor": "#76b7b2", "backgroundColor": "#76b7b233", "tension": 0.3, "spanGaps": true}]);
+</script>
+</body>
+</html>

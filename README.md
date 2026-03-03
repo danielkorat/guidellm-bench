@@ -87,15 +87,15 @@ The script imports `datasets`, `guidellm`, and `zoneinfo` inside the container t
 ```bash
 # Sanity check (single config, 4 requests) — run from host machine
 ./bench.py --sanity
-# Logs → guidellm_sanity_results/YYYYMMDD_HHMM/bench.log
-# PID  → guidellm_sanity_results/YYYYMMDD_HHMM/bench.pid
+# Logs → sanity_results/YYYYMMDD_HHMM/bench.log
+# PID  → sanity_results/YYYYMMDD_HHMM/bench.pid
 
 # Full benchmark suite in background
 nohup ./bench.py &
-# Logs → guidellm_results/YYYYMMDD_HHMM/bench.log  (self-logged; no redirect needed)
+# Logs → results/YYYYMMDD_HHMM/bench.log  (self-logged; no redirect needed)
 
 # Resume an interrupted run (skips configs with existing _benchmarks.json)
-./bench.py --resume guidellm_results/YYYYMMDD_HHMM
+./bench.py --resume results/YYYYMMDD_HHMM
 # Or: resume the latest run automatically
 ./bench.py --resume
 
@@ -132,7 +132,7 @@ guidellm-bench/
 │   ├── dataset.py                # AIME 2024 dataset preparation
 │   ├── benchmark.py              # guidellm benchmark runner
 │   └── dashboard.py              # Interactive HTML dashboard builder
-└── guidellm_results/             # Created at runtime
+└── results/             # Created at runtime
     └── YYYYMMDD_HHMM/
         ├── {cfg}_benchmarks.json
         ├── {cfg}_benchmarks.html
@@ -147,7 +147,7 @@ guidellm-bench/
 Each run creates a timestamped directory (Israel time, `YYYYMMDD_HHMM`):
 
 ```bash
-bash guidellm_results/YYYYMMDD_HHMM/serve_dashboard.sh
+bash results/YYYYMMDD_HHMM/serve_dashboard.sh
 ```
 
 ## Dashboard Metrics
@@ -165,7 +165,7 @@ If a run is interrupted, regenerate the dashboard from completed configs:
 ```python
 from guidellm_bench.dashboard import build_dashboard_html
 from pathlib import Path
-build_dashboard_html(Path("guidellm_results/YYYYMMDD_HHMM"), ["cfg1_name", "cfg2_name"])
+build_dashboard_html(Path("results/YYYYMMDD_HHMM"), ["cfg1_name", "cfg2_name"])
 ```
 
 ## Known Skip Rules
