@@ -46,6 +46,21 @@ def _log_has_xpu_hang(log_path: Optional[Path]) -> bool:
         return False
 
 
+def _log_has_startup_complete(log_path: Optional[Path]) -> bool:
+    """Return True if the server log contains 'Application startup complete'.
+
+    This confirms that uvicorn has finished initialising — the server is about
+    to respond to /health.  If this message is present, the server is NOT hung
+    and we must keep polling rather than raising XpuKernelHangError.
+    """
+    if log_path is None or not log_path.exists():
+        return False
+    try:
+        return "Application startup complete" in log_path.read_text()
+    except OSError:
+        return False
+
+
 def _run_tee(cmd: list[str], log_path: Path) -> subprocess.Popen:
     """Start *cmd*, tee-ing stdout+stderr to *log_path* and the terminal."""
     proc = subprocess.Popen(
@@ -144,6 +159,12 @@ def wait_for_server(
             # After _HANG_DETECT_AFTER_S with no health, check for the XPU
             # kernel-registration hang pattern in the server log.
             if elapsed >= _HANG_DETECT_AFTER_S and _log_has_xpu_hang(log_path):
+                # If "Application startup complete" is already in the log,
+                # the server is in the final init phase — NOT a true hang.
+                # Keep polling; the /health endpoint will succeed momentarily.
+                if _log_has_startup_complete(log_path):
+                    print("  Server logged 'Application startup complete' — not a hang, continuing to poll...", flush=True)
+                    continue
                 # Only a true XPU hang if the process is still alive.
                 # A crashed process (proc.poll() is not None) means a model
                 # loading failure — return False, don't reboot the host.
