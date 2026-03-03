@@ -268,35 +268,42 @@ nohup ./bench.py &
 nohup ./bench.py > bench_full.log 2>&1 & echo $! > bench_full.pid
 ```
 
-### 18. XPU Kernel Registration Hang — Remove and Re-launch Container
+### 18. XPU Kernel Registration Hang — Automatic Recovery
 **RULE**: When the vLLM server log shows `OperatorEntry.cpp:208` kernel override warnings followed
 by repeated `Still waiting... Xs elapsed` health-check messages, the XPU driver state inside
-the container is corrupted and the server will **never** become healthy. `pkill` and container
-`restart` are not sufficient.
+the container is corrupted and the server will **never** become healthy.
 
-**Recovery steps:**
+**This is now handled automatically:**
+- `wait_for_server()` scans the server log at each 60s interval.
+- If `OperatorEntry.cpp:208` is present AND ≥120s have elapsed with no healthy response,
+  it raises `XpuKernelHangError`.
+- The container-side bench.py catches this and exits with **code 42**.
+- The host-side re-exec guard detects exit code 42 and:
+  1. Backs up the patched guidellm package from the corrupt container
+  2. `docker rm -f <container>`
+  3. `docker run ...` — recreates with identical args
+  4. Restores the guidellm package into the fresh container
+  5. Adds `--resume` to skip already-completed configs
+  6. Loops — re-launches bench.py in the new container
+
+**Manual recovery** (if the automatic path itself fails):
 ```bash
-# 1. Kill the stuck bench.py (check bench.pid in the output dir)
+# 1. Kill the stuck bench.py
 kill $(cat guidellm_results/YYYYMMDD_HHMM/bench.pid 2>/dev/null) 2>/dev/null
 pkill -f bench.py
 
-# 2. Remove the corrupt container (use whichever is relevant)
-docker rm -f vllm-0.14    # for normal runs
-docker rm -f lsv-container  # for --ep runs
-
-# 3. Re-create the container (same args as original docker run)
+# 2. Remove and recreate the container
+docker rm -f vllm-0.14    # or lsv-container for --ep runs
 docker run -td --privileged --net=host --device=/dev/dri \
   -v /dev/dri/by-path:/dev/dri/by-path \
   -v /root/.cache/huggingface:/root/.cache/huggingface \
   -v /root/dkorat/:/root/ --shm-size=10g \
   --name=vllm-0.14 --entrypoint /bin/bash intel/vllm:0.14.1-xpu
-# (or lsv-container with intel/llm-scaler-vllm:0.14.0-b8 for --ep)
 
-# 4. Re-install Python deps inside the fresh container
-docker exec vllm-0.14 pip install --break-system-packages --no-deps -e /root/guidellm-bench
-
-# 5. Re-launch the run (use --resume to skip already-completed configs)
-nohup ./bench.py --resume &  # add --ep if applicable
+# 3. Re-install deps and resume
+docker exec vllm-0.14 bash -c \
+  "echo /root/guidellm-bench > /usr/local/lib/python3.12/dist-packages/guidellm_bench_dev.pth"
+nohup ./bench.py --resume &
 ```
 
 Do NOT attempt host reboot unless container recreation also fails.
@@ -384,7 +391,7 @@ bash guidellm_results/YYYYMMDD_HHMM/serve_dashboard.sh
 
 ---
 
-**Last Updated**: March 3, 2026 — Rule 18: XPU kernel registration hang → remove and re-launch container (not host reboot); Lesson 8 corrected accordingly  
+**Last Updated**: March 3, 2026 — Rule 18: XPU hang recovery is now fully automatic (exit code 42, host re-exec guard recreates container and resumes); Lesson 8 corrected  
 **Primary Maintainer**: Daniel Korat, Intel
 
 ---

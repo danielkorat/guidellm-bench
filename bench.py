@@ -25,18 +25,78 @@ import sys
 
 if not os.path.exists("/.dockerenv"):
     _tty = ["-t"] if sys.stdout.isatty() else []
-    # --ep requires intel/llm-scaler-vllm:0.14.0-b8 (EP not in intel/vllm:0.14.1-xpu)
     _container = "lsv-container" if "--ep" in sys.argv else "vllm-0.14"
-    # NOTE: xpu-smi enters D (uninterruptible sleep) state when the GPU is in use
-    # by vLLM and cannot be killed even with SIGKILL.  GPU memory is instead parsed
-    # from the vLLM server log after each config run (parse_model_mem_gib in server.py).
-    _cmd = (
-        ["docker", "exec", "-w", "/root/guidellm-bench"]
-        + _tty
-        + [_container, "python3", "/root/guidellm-bench/bench.py"]
-        + sys.argv[1:]
+    _image = (
+        "intel/llm-scaler-vllm:0.14.0-b8"
+        if _container == "lsv-container"
+        else "intel/vllm:0.14.1-xpu"
     )
-    sys.exit(subprocess.call(_cmd))
+    _run_args = list(sys.argv[1:])
+
+    while True:
+        _cmd = (
+            ["docker", "exec", "-w", "/root/guidellm-bench"]
+            + _tty
+            + [_container, "python3", "/root/guidellm-bench/bench.py"]
+            + _run_args
+        )
+        _rc = subprocess.call(_cmd)
+
+        if _rc != 42:
+            sys.exit(_rc)
+
+        # ------------------------------------------------------------------
+        # Exit code 42 = XPU kernel hang detected inside the container.
+        # The XPU driver state is corrupted; only a container recreation fixes
+        # it.  Steps: backup guidellm pkg → rm container → recreate → restore
+        # pkg → add --resume so already-completed configs are skipped.
+        # ------------------------------------------------------------------
+        print(
+            f"\n[recovery] XPU kernel hang (exit 42). "
+            f"Recreating container '{_container}'...",
+            flush=True,
+        )
+
+        # 1. Back up the patched guidellm package from the corrupt container
+        #    (it lives outside the volume mount, so it won't survive rm -f).
+        _gl_src = f"{_container}:/usr/local/lib/python3.12/dist-packages/guidellm"
+        _gl_backup = f"/tmp/_gl_backup_{_container}"
+        subprocess.call(["docker", "cp", _gl_src, _gl_backup])
+
+        # 2. Remove the corrupt container.
+        subprocess.call(["docker", "rm", "-f", _container])
+
+        # 3. Recreate with identical volume / device / network args.
+        subprocess.call([
+            "docker", "run", "-td", "--privileged", "--net=host",
+            "--device=/dev/dri",
+            "-v", "/dev/dri/by-path:/dev/dri/by-path",
+            "-v", "/root/.cache/huggingface:/root/.cache/huggingface",
+            "-v", "/root/dkorat/:/root/",
+            "--shm-size=10g",
+            "--name", _container,
+            "--entrypoint", "/bin/bash",
+            _image,
+        ])
+
+        # 4. Restore the patched guidellm package into the fresh container.
+        subprocess.call([
+            "docker", "cp", _gl_backup,
+            f"{_container}:/usr/local/lib/python3.12/dist-packages/guidellm",
+        ])
+
+        # 5. Make guidellm_bench importable via .pth (no pip / no network).
+        subprocess.call([
+            "docker", "exec", _container, "bash", "-c",
+            "echo /root/guidellm-bench "
+            "> /usr/local/lib/python3.12/dist-packages/guidellm_bench_dev.pth",
+        ])
+
+        # 6. Add --resume so already-completed configs are not re-run.
+        if "--resume" not in _run_args:
+            _run_args = ["--resume"] + _run_args
+
+        print(f"[recovery] Container ready. Resuming run...", flush=True)
 
 # ---------------------------------------------------------------------------
 # Normal imports — only reached when running inside the container.
@@ -54,6 +114,7 @@ from guidellm_bench import (
     SANITY,
     Config,
     GpuMonitor,
+    XpuKernelHangError,
     build_dashboard_html,
     parse_model_mem_gib,
     prepare_aime_dataset,
@@ -263,7 +324,19 @@ def main() -> None:
         monitor.start()
 
         proc = start_server(cfg, max_model_len, log_dir / f"{cfg.name}_server.log")
-        if not wait_for_server(timeout_startup):
+        _server_log = log_dir / f"{cfg.name}_server.log"
+        try:
+            ready = wait_for_server(timeout_startup, log_path=_server_log)
+        except XpuKernelHangError as _hang:
+            print(f"  FATAL: {_hang}", flush=True)
+            print(
+                "  Exiting with code 42 — host will recreate the container and resume.",
+                flush=True,
+            )
+            stop_server(proc)
+            monitor.stop()
+            sys.exit(42)
+        if not ready:
             stop_server(proc)
             monitor.stop()
             failed.append((cfg.name, "server startup failed"))

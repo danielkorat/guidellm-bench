@@ -4,6 +4,7 @@ Runs inside the intel/vllm:0.14.1-xpu container. Subprocesses are called
 directly (no docker exec wrapper); oneAPI is sourced via bash --login -c.
 """
 
+import re as _re
 import subprocess
 import threading
 import time
@@ -12,6 +13,37 @@ from typing import Optional
 
 from .config import Config, PORT
 from .docker import _PREAMBLE
+
+# ---------------------------------------------------------------------------
+# XPU kernel hang detection
+# ---------------------------------------------------------------------------
+
+# When IPEX overrides PyTorch XPU kernels AND the server never becomes healthy,
+# the internal XPU driver is in a corrupted state that only a container
+# recreation can fix.  We detect this by looking for the OperatorEntry warning
+# in the server log once we've been waiting long enough.
+_HANG_PATTERN = _re.compile(r"OperatorEntry\.cpp:208")
+_HANG_DETECT_AFTER_S = 120  # seconds: raise at the 2nd "Still waiting" print
+
+
+class XpuKernelHangError(RuntimeError):
+    """Raised when an XPU kernel-registration hang is detected.
+
+    This means the XPU driver inside the container is corrupted.  The only
+    recovery is to remove and recreate the container.  bench.py exits with
+    code 42 so the host-side re-exec guard can perform the recovery and
+    resume automatically.
+    """
+
+
+def _log_has_xpu_hang(log_path: Optional[Path]) -> bool:
+    """Return True if the server log contains the OperatorEntry.cpp:208 warning."""
+    if log_path is None or not log_path.exists():
+        return False
+    try:
+        return bool(_HANG_PATTERN.search(log_path.read_text()))
+    except OSError:
+        return False
 
 
 def _run_tee(cmd: list[str], log_path: Path) -> subprocess.Popen:
@@ -72,8 +104,13 @@ def start_server(cfg: Config, max_model_len: int, log_path: Path) -> subprocess.
     )
 
 
-def wait_for_server(timeout: int) -> bool:
-    """Poll /health until the server responds or *timeout* seconds elapse."""
+def wait_for_server(timeout: int, log_path: Optional[Path] = None) -> bool:
+    """Poll /health until the server responds or *timeout* seconds elapse.
+
+    Raises XpuKernelHangError if the OperatorEntry.cpp:208 XPU hang pattern
+    is detected in *log_path* after _HANG_DETECT_AFTER_S seconds, signalling
+    that the container must be recreated (the caller should exit with code 42).
+    """
     print(f"  Waiting for server (timeout={timeout}s)...", flush=True)
     time.sleep(10)
 
@@ -100,6 +137,14 @@ def wait_for_server(timeout: int) -> bool:
         time.sleep(5)
         if elapsed % 60 == 0:
             print(f"  Still waiting... {elapsed}s elapsed", flush=True)
+            # After _HANG_DETECT_AFTER_S with no health, check for the XPU
+            # kernel-registration hang pattern in the server log.
+            if elapsed >= _HANG_DETECT_AFTER_S and _log_has_xpu_hang(log_path):
+                raise XpuKernelHangError(
+                    f"XPU kernel registration hang detected after {elapsed}s "
+                    f"(OperatorEntry.cpp:208 in server log, server never healthy). "
+                    f"Container must be recreated."
+                )
 
     print(f"  ERROR: server did not become ready within {timeout}s", flush=True)
     return False
