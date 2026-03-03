@@ -231,6 +231,7 @@ Config(model="Qwen/Qwen3-30B-A3B", tp=4, quant="fp8", eager=True, expert_paralle
 ⚠️ **Requires `intel/llm-scaler-vllm:0.14.0-b8` or later** (the single container used for all runs).
 The vLLM flag emitted is: `--enable-expert-parallel` (boolean — **no** `--expert-parallel-size` parameter exists in this build).
 EP is meaningful only for MoE models (gpt-oss-20b, Qwen3-30B-A3B): it distributes experts across GPUs, reducing per-expert memory and improving throughput.
+**Guard**: `is_moe_model(model)` (defined in `config.py`) must return True before any EP config is added. The ep_configs loop skips non-MoE models with a printed warning.
 
 ### 13. Timestamped Output Directories (Israel Time)
 ```python
@@ -307,6 +308,27 @@ After reboot, resume manually:
 ```
 
 Do NOT attempt container recreation — D-state vllm processes block `docker rm -f` even with SIGKILL.
+
+### 22. Server Reuse via server_status.json
+**RULE**: `bench.py` never unconditionally kills and restarts vLLM between configs. Before each config,
+`server_is_reusable(cfg, max_model_len)` in `server.py` checks:
+1. `/root/guidellm-bench/server_status.json` exists and all config fields match (model, tp, quant, eager, expert_parallel_size, speculative_config, max_model_len, port).
+2. The recorded PID is alive (`os.kill(pid, 0)`).
+3. `/health` returns HTTP 200 (with `no_proxy` to bypass Intel proxy).
+
+If all three pass → print "Reusing running server" and skip restart (saves ~90s per config).
+On successful startup → `write_server_status(cfg, max_model_len, proc.pid, log_path)` writes the JSON.
+On `stop_server()` → `server_status.json` is deleted.
+
+Status file path: `/root/guidellm-bench/server_status.json` (inside container; volume-backed at host `/root/dkorat/guidellm-bench/server_status.json`).
+
+### 23. EP is MoE-Only — Enforced in Code
+**RULE**: `is_moe_model(model)` (defined in `config.py`, using `_MOE_MODELS` frozenset) must return True before any `expert_parallel_size` config is built. The `ep_configs` loop in `bench.py` calls this guard and skips non-MoE models with a printed warning. Never add EP configs for dense models (e.g. Qwen3-4B-Thinking).
+
+```python
+# MoE models supporting EP:
+_MOE_MODELS = frozenset({"openai/gpt-oss-20b", "openai/gpt-oss-120b", "Qwen/Qwen3-30B-A3B"})
+```
 
 ## Default Configuration
 
@@ -391,7 +413,7 @@ bash results/YYYYMMDD_HHMM/serve_dashboard.sh
 
 ---
 
-**Last Updated**: March 3, 2026 — Rule 18 updated (interactive reboot confirmation; non-interactive sessions skip auto-reboot); proxy forwarded through docker exec; single container (lsv-container)  
+**Last Updated**: March 3, 2026 — Rules 22+23 added (server_status.json server reuse; EP-only-for-MoE guard); proxy fix for curl health checks (Rule 21); proxy forwarded through docker exec; single container (lsv-container)  
 **Primary Maintainer**: Daniel Korat, Intel
 
 ---
