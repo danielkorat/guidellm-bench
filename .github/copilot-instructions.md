@@ -306,6 +306,17 @@ docker exec vllm-0.14 bash -c \
 nohup ./bench.py --resume &
 ```
 
+If `docker rm -f` keeps failing (container fully frozen at kernel level), use rename instead:
+```bash
+docker rename vllm-0.14 vllm-0.14-dead
+docker run -td --privileged --net=host --device=/dev/dri \
+  -v /dev/dri/by-path:/dev/dri/by-path \
+  -v /root/.cache/huggingface:/root/.cache/huggingface \
+  -v /root/dkorat/:/root/ --shm-size=10g \
+  --name=vllm-0.14 --entrypoint /bin/bash intel/vllm:0.14.1-xpu
+```
+The automatic recovery does this rename fallback automatically after 3 failed `rm -f` attempts.
+
 Do NOT attempt host reboot unless container recreation also fails.
 
 ## Default Configuration

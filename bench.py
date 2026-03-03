@@ -73,7 +73,8 @@ if not os.path.exists("/.dockerenv"):
         subprocess.call(["docker", "cp", _gl_src, _gl_backup])
 
         # 3. Remove the corrupt container — retry up to 3× with backoff in case
-        #    D-state processes are slow to clear.
+        #    D-state processes are slow to clear.  Final fallback: rename it so
+        #    we can create a fresh container with the correct name.
         for _attempt in range(3):
             _rm_rc = subprocess.call(["docker", "rm", "-f", _container])
             if _rm_rc == 0:
@@ -82,7 +83,11 @@ if not os.path.exists("/.dockerenv"):
                   flush=True)
             time.sleep(20)
         else:
-            print("[recovery] WARNING: docker rm still failed — proceeding anyway", flush=True)
+            # rename the zombie so docker run can use the name
+            import datetime as _dt
+            _dead_name = f"{_container}-dead-{_dt.datetime.now().strftime('%H%M%S')}"
+            print(f"[recovery] docker rm still failing — renaming to '{_dead_name}'", flush=True)
+            subprocess.call(["docker", "rename", _container, _dead_name])
 
         # 4. Recreate with identical volume / device / network args.
         subprocess.call([
