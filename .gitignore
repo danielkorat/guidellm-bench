@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 results/
 sanity_results/
+guidellm_results/
+guidellm_sanity_results/
 bench_full.log
 bench_full.pid
 /tmp/
