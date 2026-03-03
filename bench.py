@@ -22,6 +22,7 @@ See guidellm_bench/ for implementation details.
 import os
 import subprocess
 import sys
+import time
 
 if not os.path.exists("/.dockerenv"):
     _tty = ["-t"] if sys.stdout.isatty() else []
