@@ -101,6 +101,25 @@ nohup ./bench.py > /dev/null 2>&1 &
 
 # With Eagle3 speculative decoding (gpt-oss-120b, tp=8)
 ./bench.py --eagle3
+
+# EP comparison: run gpt-oss-20b and Qwen3-30B with AND without Expert Parallelism
+./bench.py --ep-compare
+
+# Custom HuggingFace dataset (text column auto-detected)
+./bench.py --data cx-cmu/deepresearchgym-agentic-search-logs
+
+# Long-context TTFT sweep: 1k/4k/8k/16k input tokens (10 samples each)
+./bench.py --long-contexts
+
+# Combined: gpt-oss-20b EP comparison + long-context sweep on a custom dataset
+nohup ./bench.py \
+  --models openai/gpt-oss-20b --tp 4 \
+  --ep-compare --long-contexts \
+  --data cx-cmu/deepresearchgym-agentic-search-logs \
+  > /dev/null 2>&1 &
+
+# Sanity test with EP compare + long contexts
+./bench.py --sanity --models openai/gpt-oss-20b --tp 4 --ep-compare --long-contexts
 ```
 
 ## Default Matrix
@@ -124,19 +143,22 @@ guidellm-bench/
 ├── install.sh                    # Host-side install script (starts container + installs deps)
 ├── pyproject.toml                # Project metadata and dependencies
 ├── README.md
+├── PLAN.md                       # Living plan/checklist for feature work
 ├── guidellm_bench/               # Core package
 │   ├── config.py                 # Config dataclass, defaults, skip rules
-│   ├── docker.py                 # Container lifecycle: ensure_container_running, docker_exec_cmd
+│   ├── docker.py                 # Container lifecycle: ensure_container_running
 │   ├── server.py                 # vLLM server lifecycle
-│   ├── dataset.py                # AIME 2024 dataset preparation
-│   ├── benchmark.py              # guidellm benchmark runner
+│   ├── dataset.py                # AIME 2024 + generic HF dataset ; long-context slicing
+│   ├── benchmark.py              # guidellm benchmark runner (+ lc_mode)
 │   └── dashboard.py              # Interactive HTML dashboard builder
 └── results/             # Created at runtime
     └── YYYYMMDD_HHMM/
         ├── {cfg}_benchmarks.json
         ├── {cfg}_benchmarks.html
-        ├── dashboard.html
+        ├── {cfg}_lc{N}k_benchmarks.json  # long-context slices
+        ├── dashboard.html            # interactive dashboard (all configs + LC charts)
         ├── serve_dashboard.sh
+        ├── datasets/                 # cached JSONL files for this run
         └── logs/
 ```
 
@@ -154,7 +176,8 @@ bash results/YYYYMMDD_HHMM/serve_dashboard.sh
 - **ITL** (Inter-Token Latency, ms)
 - **Throughput** (req/s and tok/s)
 - **Model Weights Memory (GiB/GPU)** — parsed directly from the vLLM server log (`parse_model_mem_gib()`); `xpu-smi` is NOT used at runtime (enters uninterruptible D-state when the GPU is active)
-- Per-config GPU utilisation and memory time-series charts
+- **TTFT vs Input Length** — per-config long-context chart when `--long-contexts` is set (1k/4k/8k/16k input tokens)
+- EP vs no-EP side-by-side bars when `--ep-compare` is set
 
 ## Rebuild Dashboard from Partial Results
 

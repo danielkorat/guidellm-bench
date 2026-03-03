@@ -208,6 +208,42 @@ def _extract_sweep_points(data: dict) -> list[dict]:
     return rows
 
 
+def _extract_lc_ttft(data: dict) -> Optional[float]:
+    """Extract median TTFT (ms) from a single long-context benchmark JSON result."""
+    benchmarks = data.get("benchmarks", []) if isinstance(data, dict) else data
+    if not benchmarks:
+        return None
+    b = benchmarks[0]
+    reqs = b.get("requests", {}).get("successful", [])
+    return _median([r.get("time_to_first_token_ms") for r in reqs])
+
+
+def _load_lc_points(out_dir: Path, cfg_name: str) -> Dict[int, Optional[float]]:
+    """Return {token_len: median_ttft_ms} for long-context slices of *cfg_name*.
+
+    Looks for files named ``{cfg_name}_lc{N}k_benchmarks.json`` in *out_dir*.
+    Token lengths are inferred from the label (e.g. lc4k → 4096).
+    """
+    lc_points: Dict[int, Optional[float]] = {}
+    for fpath in sorted(out_dir.glob(f"{cfg_name}_lc*_benchmarks.json")):
+        # Extract the label like '1k', '4k', '8k', '16k'
+        import re as _re
+        m = _re.search(r"_lc(\d+k)_benchmarks", fpath.name)
+        if not m:
+            continue
+        label = m.group(1)
+        k = int(label[:-1])           # '4k' → 4
+        token_len = k * 1024
+        try:
+            with open(fpath) as f:
+                data = json.load(f)
+            ttft = _extract_lc_ttft(data)
+            lc_points[token_len] = ttft
+        except Exception:
+            lc_points[token_len] = None
+    return lc_points
+
+
 # ---------------------------------------------------------------------------
 # Dashboard builder
 # ---------------------------------------------------------------------------
@@ -235,8 +271,13 @@ def build_dashboard_html(
             continue
         with open(json_path) as f:
             data = json.load(f)
-        records.append({"name": name, "points": _extract_sweep_points(data),
-                        "_json_path": str(json_path)})
+        lc_points = _load_lc_points(out_dir, name)
+        records.append({
+            "name": name,
+            "points": _extract_sweep_points(data),
+            "lc_points": lc_points,       # {token_len: ttft_ms | None}
+            "_json_path": str(json_path),
+        })
 
     if not records:
         print("  No benchmark results found for dashboard", flush=True)
@@ -253,6 +294,7 @@ def build_dashboard_html(
     bar_gpu_mem: list = []
     line_ttft_ds: list = []
     line_tput_ds: list = []
+    lc_overview_ds: list = []   # multi-line TTFT vs Input Length per config (overview)
 
     for i, rec in enumerate(records):
         color = COLORS[i % len(COLORS)]
@@ -285,6 +327,16 @@ def build_dashboard_html(
             line_ttft_ds.append({"label": label, "data": xy_ttft, **ds_opts})
         if xy_tput:
             line_tput_ds.append({"label": label, "data": xy_tput,  **ds_opts})
+
+        # Long-context TTFT overview dataset
+        lc_pts = rec.get("lc_points", {})
+        lc_xy = [
+            {"x": tok_len, "y": ttft}
+            for tok_len, ttft in sorted(lc_pts.items())
+            if ttft is not None
+        ]
+        if lc_xy:
+            lc_overview_ds.append({"label": label, "data": lc_xy, **ds_opts})
 
     # ------------------------------------------------------------------
     # Per-config tab HTML
@@ -325,6 +377,25 @@ def build_dashboard_html(
         def series_js(metric: str) -> str:
             return json.dumps([p.get(metric) for p in pts])
 
+        # Long-context data for per-config tab
+        lc_pts_rec = rec.get("lc_points", {})
+        lc_labels_js = json.dumps(sorted(lc_pts_rec.keys()))
+        lc_ttft_js   = json.dumps([lc_pts_rec.get(k) for k in sorted(lc_pts_rec.keys())])
+        has_lc = bool(lc_pts_rec)
+
+        lc_chart_html = ""
+        lc_chart_js   = ""
+        if has_lc:
+            lc_chart_html = (
+                f'<div class="col-12 mt-2"><div class="card shadow-sm border-info">'
+                f'<div class="card-header fw-bold text-info" style="font-size:.8rem">'
+                f'&#128200; TTFT (ms) vs Input Length (long-context slices)</div>'
+                f'<div class="card-body p-2"><canvas id="{cid("lc-ttft")}" style="max-height:220px"></canvas></div>'
+                f'</div></div>'
+            )
+            lc_chart_js = f"""
+  cfgLine("{cid("lc-ttft")}", {lc_ttft_js}, "TTFT (ms)", {lc_labels_js}, "Input tokens");"""
+
         config_tabs_nav += (
             f'<li class="nav-item">'
             f'<a class="nav-link" data-bs-toggle="tab" href="#{tab_id}">{short}</a>'
@@ -345,6 +416,7 @@ def build_dashboard_html(
         <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">ITL (ms) vs Concurrency</div><div class="card-body p-2"><canvas id="{cid("itl")}"></canvas></div></div></div>
         <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Req/s vs Concurrency</div><div class="card-body p-2"><canvas id="{cid("rps")}"></canvas></div></div></div>
         <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Output tok/s vs Concurrency</div><div class="card-body p-2"><canvas id="{cid("tps")}"></canvas></div></div></div>
+        {lc_chart_html}
       </div>
     </div>
   </div>
@@ -353,19 +425,21 @@ def build_dashboard_html(
 (function(){{
   const C = {json.dumps(concs)};
   const col = "{color}";
-  function cfgLine(id, vals, yLabel) {{
+  function cfgLine(id, vals, yLabel, xLabels, xTitle) {{
     const el = document.getElementById(id);
     if (!el) return;
+    const labels = xLabels || C;
+    const xT = xTitle || 'Concurrency';
     new Chart(el, {{
       type: 'line',
-      data: {{ labels: C, datasets: [{{
+      data: {{ labels: labels, datasets: [{{
         label: yLabel, data: vals, borderColor: col,
         backgroundColor: col + '33', pointRadius: 4, tension: 0.3, spanGaps: true
       }}]}},
       options: {{
         plugins: {{ legend: {{ display: false }} }},
         scales: {{
-          x: {{ title: {{ display: true, text: 'Concurrency' }} }},
+          x: {{ title: {{ display: true, text: xT }} }},
           y: {{ beginAtZero: false, title: {{ display: true, text: yLabel }} }}
         }}
       }}
@@ -374,14 +448,24 @@ def build_dashboard_html(
   cfgLine("{cid("ttft")}", {series_js("ttft_ms")},        "TTFT (ms)");
   cfgLine("{cid("itl")}",  {series_js("itl_ms")},         "ITL (ms)");
   cfgLine("{cid("rps")}",  {series_js("throughput_rps")}, "Req/s");
-  cfgLine("{cid("tps")}",  {series_js("throughput_tps")}, "Output tok/s");
+  cfgLine("{cid("tps")}",  {series_js("throughput_tps")}, "Output tok/s");{lc_chart_js}
 }})();
 </script>\n"""
 
     # ------------------------------------------------------------------
     # Overview tab HTML
     # ------------------------------------------------------------------
-    overview_content = """<div class="tab-pane fade show active" id="tab-overview">
+    # Conditionally include the long-context overview chart card
+    lc_overview_card = ""
+    if lc_overview_ds:
+        lc_overview_card = (
+            '<div class="col-12"><div class="card shadow-sm border-info">'
+            '<div class="card-header fw-bold text-info">&#128200; TTFT (ms) vs Input Length &mdash; long-context comparison</div>'
+            '<div class="card-body"><canvas id="c-lc-ttft" style="max-height:280px"></canvas></div>'
+            '</div></div>'
+        )
+
+    overview_content = f"""<div class="tab-pane fade show active" id="tab-overview">
   <div class="row g-4 mt-2">
     <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">TTFT (ms) &mdash; median</div><div class="card-body"><canvas id="c-bar-ttft"></canvas></div></div></div>
     <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">ITL (ms) &mdash; median</div><div class="card-body"><canvas id="c-bar-itl"></canvas></div></div></div>
@@ -390,6 +474,7 @@ def build_dashboard_html(
     <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">Model Weights Memory (GiB, all devices)</div><div class="card-body"><canvas id="c-bar-mem"></canvas></div></div></div>
     <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">TTFT (ms) vs Concurrency &mdash; sweep</div><div class="card-body"><canvas id="c-line-ttft" style="max-height:260px"></canvas></div></div></div>
     <div class="col-12"><div class="card shadow-sm"><div class="card-header fw-bold">Throughput (req/s) vs Concurrency &mdash; sweep</div><div class="card-body"><canvas id="c-line-rps" style="max-height:260px"></canvas></div></div></div>
+    {lc_overview_card}
   </div>
 </div>"""
 
@@ -469,6 +554,25 @@ bar('c-bar-tps',  {json.dumps(bar_tput_tps)}, 'tok/s');
 bar('c-bar-mem',  {json.dumps(bar_gpu_mem)},  'GiB');
 line('c-line-ttft', {json.dumps(line_ttft_ds)});
 line('c-line-rps',  {json.dumps(line_tput_ds)});
+
+// Long-context TTFT overview (x-axis = input tokens, not concurrency)
+(function() {{
+  const lcDs = {json.dumps(lc_overview_ds)};
+  if (!lcDs.length) return;
+  const el = document.getElementById('c-lc-ttft');
+  if (!el) return;
+  new Chart(el, {{
+    type: 'line', data: {{ datasets: lcDs }},
+    options: {{
+      parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
+      scales: {{
+        x: {{ type: 'linear', title: {{ display: true, text: 'Input tokens' }} }},
+        y: {{ beginAtZero: false, title: {{ display: true, text: 'TTFT (ms)' }} }}
+      }},
+      plugins: {{ legend: {{ position: 'top' }} }}
+    }}
+  }});
+}})();
 </script>
 </body>
 </html>"""

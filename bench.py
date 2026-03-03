@@ -6,6 +6,9 @@ Usage:
     ./bench.py               # full benchmark matrix
     ./bench.py --sanity      # single config, fast smoke-test
     ./bench.py --ep          # include Expert Parallelism variants
+    ./bench.py --ep-compare  # run EP-capable models WITH and WITHOUT EP for comparison
+    ./bench.py --data cx-cmu/deepresearchgym-agentic-search-logs  # custom HF dataset
+    ./bench.py --long-contexts  # run 1k/4k/8k/16k input-token slices + TTFT chart
     ./bench.py --models openai/gpt-oss-20b --tp 4 --quantization none
 
 When called from the host this script auto-relaunches itself inside
@@ -72,6 +75,7 @@ from zoneinfo import ZoneInfo
 from guidellm_bench import (
     EAGLE3_SPECULATIVE_CONFIG,
     FULL,
+    LONG_CONTEXT_LENGTHS,
     SANITY,
     Config,
     SERVER_STATUS_PATH,
@@ -80,6 +84,8 @@ from guidellm_bench import (
     is_moe_model,
     parse_model_mem_gib,
     prepare_aime_dataset,
+    prepare_hf_dataset,
+    prepare_long_context_datasets,
     run_guidellm,
     server_is_reusable,
     skip_reason,
@@ -112,6 +118,50 @@ class _Tee:
         return self._files[0].fileno()
 
 
+def _israel_now() -> datetime:
+    """Return current datetime in Israel time (Asia/Jerusalem, UTC+2/+3 DST).
+
+    Falls back to a fixed UTC+2 offset if tzdata is not installed in the
+    container, so ts-labelled directories are always human-readable local time.
+    """
+    try:
+        return datetime.now(ZoneInfo("Asia/Jerusalem"))
+    except Exception:
+        # tzdata missing — use fixed UTC+2 as a safe fallback
+        from datetime import timezone, timedelta
+        il_tz = timezone(timedelta(hours=2))
+        print(
+            "  WARNING: ZoneInfo('Asia/Jerusalem') unavailable — "
+            "using UTC+2 for timestamp. Install tzdata to fix.",
+            flush=True,
+        )
+        return datetime.now(il_tz)
+
+
+def _clean_incomplete_runs(results_dir: str) -> None:
+    """Remove subdirs in *results_dir* that have zero *_benchmarks.json* files.
+
+    These are leftover from crashes / early exits. Safe to delete because no
+    useful data was produced. Printed to stdout so the user can see what went.
+    Skip the directory that is currently being written (caller creates it after).
+    """
+    base = Path(results_dir)
+    if not base.exists():
+        return
+    removed = []
+    for d in sorted(base.iterdir()):
+        if not d.is_dir():
+            continue
+        if list(d.glob("*_benchmarks.json")):
+            continue  # has results — keep
+        # No benchmark JSON → incomplete run
+        import shutil as _shutil
+        _shutil.rmtree(d, ignore_errors=True)
+        removed.append(d.name)
+    if removed:
+        print(f"  Auto-cleaned {len(removed)} incomplete run dir(s) from {base}: {removed}", flush=True)
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="guidellm benchmarking for vLLM model/tp/quant/eager configs",
@@ -138,6 +188,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Append Expert Parallelism (EP) variants for MoE models "
              "(requires intel/llm-scaler-vllm:0.14.0-b8+). "
              "Adds gpt-oss-20b tp4+ep4 and Qwen3-30B-A3B tp2+ep2 / tp4+ep4.",
+    )
+    p.add_argument(
+        "--ep-compare", action="store_true", dest="ep_compare",
+        help="Run EP-capable models both WITH and WITHOUT Expert Parallelism so "
+             "both appear in the same dashboard for direct comparison. "
+             "Superset of --ep: also ensures the non-EP base configs are present. "
+             "Mutually exclusive with --ep.",
+    )
+    p.add_argument(
+        "--data", metavar="HF_DATASET",
+        help="HuggingFace dataset id to use as prompt source instead of AIME 2024 "
+             "(e.g. 'cx-cmu/deepresearchgym-agentic-search-logs'). "
+             "The text column is auto-detected.",
+    )
+    p.add_argument(
+        "--long-contexts", action="store_true", dest="long_contexts",
+        help="Run additional mini-benchmarks at 1k/4k/8k/16k input tokens (10 samples "
+             "each) and add a TTFT-vs-input-length chart to each config tab in the dashboard.",
     )
     p.add_argument(
         "--resume", metavar="DIR", nargs="?", const="",
@@ -186,6 +254,11 @@ def main() -> None:
     results_dir      = get("results_dir", "results_dir")
     timeout_startup  = get("timeout_startup", "timeout_startup")
 
+    # Auto-clean incomplete run dirs (no _benchmarks.json) from prior aborted runs.
+    # Skip when resuming — the target dir may legitimately have zero files yet.
+    if args.resume is None:
+        _clean_incomplete_runs(results_dir)
+
     # Output directory: existing (--resume) or a fresh timestamped one
     if args.resume is not None:
         if args.resume == "":
@@ -205,7 +278,7 @@ def main() -> None:
             sys.exit(f"--resume: directory not found: {out_dir}")
         _log_mode = "a"   # append to existing bench.log
     else:
-        ts      = datetime.now(ZoneInfo("Asia/Jerusalem")).strftime("%Y%m%d_%H%M")
+        ts      = _israel_now().strftime("%Y%m%d_%H%M")
         out_dir = Path(results_dir) / ts
         _log_mode = "w"
 
@@ -226,8 +299,44 @@ def main() -> None:
     else:
         print(f"Results → {out_dir}\n")
 
-    # Prepare AIME dataset once (cached; None → synthetic fallback)
-    aime_path = prepare_aime_dataset(output_tokens=1024)
+    # Validate mutually exclusive EP flags
+    if args.ep and args.ep_compare:
+        sys.exit("--ep and --ep-compare are mutually exclusive — use --ep-compare for side-by-side EP vs no-EP")
+
+    # Prepare prompt dataset (custom HF dataset or AIME fallback)
+    if args.data:
+        dataset_path = prepare_hf_dataset(
+            args.data,
+            output_tokens=1024,
+            max_samples=100,
+            cache_dir=out_dir / "datasets",
+        )
+        if dataset_path is None:
+            print(f"  WARNING: '{args.data}' unavailable — falling back to AIME 2024", flush=True)
+            dataset_path = prepare_aime_dataset(output_tokens=1024)
+    else:
+        dataset_path = prepare_aime_dataset(output_tokens=1024)
+
+    # Prepare long-context JSONL slices (if --long-contexts and we have a source dataset)
+    lc_datasets: dict[int, str | None] = {}   # {token_len: path | None}
+    if args.long_contexts:
+        if dataset_path:
+            # --long-contexts needs max_model_len >= 16384; override if needed
+            if max_model_len < 16384:
+                print(
+                    f"  --long-contexts: max_model_len {max_model_len} < 16384 — overriding to 16384",
+                    flush=True,
+                )
+                max_model_len = 16384
+            lc_datasets = prepare_long_context_datasets(
+                source_path=dataset_path,
+                token_lengths=LONG_CONTEXT_LENGTHS,
+                num_samples=10,
+                output_tokens=512,
+                cache_dir=out_dir / "datasets",
+            )
+        else:
+            print("  WARNING: --long-contexts requires a dataset; using synthetic fallback (no JSONL available)", flush=True)
 
     model_mem_gib: dict[str, float] = {}
     if args.resume is not None:
@@ -250,23 +359,42 @@ def main() -> None:
                         continue
                     configs.append(Config(model=model, tp=tp, quant=quant, eager=eager))
 
-    # Expert Parallelism (EP) variants for MoE models — opt-in via --ep
-    if args.ep:
-        ep_configs = [
-            # gpt-oss-20b: mxfp4 baked in (no quant), tp=4 with ep=4
-            Config(model="openai/gpt-oss-20b",    tp=4, quant=None,  eager=True, expert_parallel_size=4),
-            # Qwen3-30B-A3B (MoE): fp8, tp=2+ep=2 and tp=4+ep=4
-            Config(model="Qwen/Qwen3-30B-A3B",    tp=2, quant="fp8", eager=True, expert_parallel_size=2),
-            Config(model="Qwen/Qwen3-30B-A3B",    tp=4, quant="fp8", eager=True, expert_parallel_size=4),
-        ]
-        for c in ep_configs:
+    # Expert Parallelism (EP) variants for MoE models — opt-in via --ep or --ep-compare
+    _EP_VARIANTS = [
+        # gpt-oss-20b: mxfp4 baked in (no quant), tp=4 with ep=4
+        Config(model="openai/gpt-oss-20b",  tp=4, quant=None,  eager=True, expert_parallel_size=4),
+        # Qwen3-30B-A3B (MoE): fp8, tp=2+ep=2 and tp=4+ep=4
+        Config(model="Qwen/Qwen3-30B-A3B", tp=2, quant="fp8", eager=True, expert_parallel_size=2),
+        Config(model="Qwen/Qwen3-30B-A3B", tp=4, quant="fp8", eager=True, expert_parallel_size=4),
+    ]
+    if args.ep or args.ep_compare:
+        flag = "--ep-compare" if args.ep_compare else "--ep"
+        for c in _EP_VARIANTS:
             if models and c.model not in models:
                 continue
             if not is_moe_model(c.model):
-                print(f"  SKIP  {c.model}  ep={c.expert_parallel_size}: EP requires MoE architecture (not applicable to this model)")
+                print(f"  SKIP  {c.model}  ep={c.expert_parallel_size}: EP requires MoE architecture")
                 continue
             configs.append(c)
-            print(f"  +    {c.model}  tp={c.tp}  quant={c.quant or 'none'}  ep={c.expert_parallel_size}  (EP via --ep)")
+            print(f"  +    {c.model}  tp={c.tp}  quant={c.quant or 'none'}  ep={c.expert_parallel_size}  (EP via {flag})")
+
+    # --ep-compare: also ensure the non-EP counterparts of EP variants are present in the matrix
+    if args.ep_compare:
+        existing_names = {c.name for c in configs}
+        for c in _EP_VARIANTS:
+            if models and c.model not in models:
+                continue
+            if not is_moe_model(c.model):
+                continue
+            base = Config(model=c.model, tp=c.tp, quant=c.quant, eager=c.eager)
+            if base.name not in existing_names:
+                reason = skip_reason(base.model, base.quant, base.eager, base.tp)
+                if reason:
+                    print(f"  SKIP (ep-compare base)  {base.name}: {reason}")
+                else:
+                    configs.append(base)
+                    existing_names.add(base.name)
+                    print(f"  +    {base.model}  tp={base.tp}  quant={base.quant or 'none'}  (non-EP base via --ep-compare)")
 
     # gpt-oss-120b Eagle3 is opt-in (tp=8, no quant — mxfp4 baked in)
     if not args.sanity and args.eagle3:
@@ -337,7 +465,7 @@ def main() -> None:
             cfg, input_len, output_len, concurrency, num_prompts,
             log_dir / f"{cfg.name}_bench.log",
             sweep=not args.sanity,
-            dataset_path=aime_path,
+            dataset_path=dataset_path,
         )
         # Server intentionally kept alive — reused by next config if possible.
         # Final teardown happens after all configs or before a config with a
@@ -358,6 +486,32 @@ def main() -> None:
         if mem_gib is not None:
             model_mem_gib[cfg.name] = mem_gib
             print(f"  Model weights: {mem_gib:.2f} GiB/GPU × {cfg.tp} GPUs = {mem_gib * cfg.tp:.2f} GiB total")
+
+        # Long-context slices (--long-contexts): run 1k/4k/8k/16k input-token benchmarks
+        if args.long_contexts and lc_datasets:
+            print(f"  Running long-context slices for {cfg.name}...", flush=True)
+            for token_len, lc_path in sorted(lc_datasets.items()):
+                if lc_path is None:
+                    continue
+                lc_label = f"{token_len // 1024}k" if token_len >= 1024 else str(token_len)
+                lc_name = f"{cfg.name}_lc{lc_label}"
+                lc_checkpoint = out_dir / f"{lc_name}_benchmarks.json"
+                if args.resume is not None and lc_checkpoint.exists():
+                    print(f"    ✓  lc{lc_label} already done — skipping", flush=True)
+                    continue
+                print(f"    → lc{lc_label} ({token_len} input tokens, 10 samples)", flush=True)
+                lc_data = run_guidellm(
+                    cfg, input_len, output_len, concurrency, num_prompts,
+                    log_dir / f"{lc_name}_bench.log",
+                    sweep=False,
+                    dataset_path=lc_path,
+                    lc_mode=True,
+                )
+                if lc_data is not None:
+                    lc_saved = copy_results(lc_name, out_dir, log_dir / ".guidellm_out")
+                    print(f"    ✓  lc{lc_label} → {', '.join(lc_saved)}", flush=True)
+                else:
+                    print(f"    ✗  lc{lc_label} failed", flush=True)
 
         elapsed = time.time() - t0
         print(f"\n  ✓  {cfg.name}  ({elapsed:.0f}s)  →  {', '.join(saved)}", flush=True)

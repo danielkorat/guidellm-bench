@@ -12,21 +12,24 @@ Benchmarking tool (`bench.py` entry point + `guidellm_bench/` package) that runs
 ├── install.sh                    # Host-side install: starts container + installs deps inside it
 ├── pyproject.toml                # Python project metadata and dependencies
 ├── README.md
+├── PLAN.md                       # Living plan/checklist for feature work
 ├── .github/copilot-instructions.md
 ├── guidellm_bench/               # Core package
 │   ├── __init__.py               # Public API re-exports
 │   ├── config.py                 # Config dataclass, FULL/SANITY defaults, skip_reason()
 │   ├── docker.py                 # CONTAINER_NAME, _PREAMBLE, ensure_container_running()
 │   ├── server.py                 # vLLM server lifecycle: start, health-check, stop
-│   ├── dataset.py                # AIME 2024 dataset download and caching
-│   ├── benchmark.py              # run_guidellm() and copy_results()
+│   ├── dataset.py                # AIME 2024 + generic HF dataset download; long-context slicing
+│   ├── benchmark.py              # run_guidellm() (+ lc_mode) and copy_results()
 │   └── dashboard.py              # build_dashboard_html() and write_serve_script()
 ├── results/                      # Created at runtime (full runs) — gitignored
 │   └── YYYYMMDD_HHMM/
 │       ├── {cfg_name}_benchmarks.json
 │       ├── {cfg_name}_benchmarks.html
+│       ├── {cfg_name}_lc{N}k_benchmarks.json  # long-context slices (--long-contexts)
 │       ├── dashboard.html
 │       ├── serve_dashboard.sh
+│       ├── datasets/                           # cached JSONL files for this run
 │       └── logs/
 └── sanity_results/               # Created at runtime (—sanity runs) — gitignored
 ```
@@ -396,6 +399,27 @@ nohup ./bench.py > /dev/null 2>&1 &
 ./bench.py --ep
 # Adds: gpt-oss-20b tp4+ep4, Qwen3-30B-A3B tp2+ep2, Qwen3-30B-A3B tp4+ep4
 
+# EP comparison (non-EP + EP side-by-side in one dashboard) — mutually exclusive with --ep
+./bench.py --ep-compare
+
+# Custom HF dataset (auto-detects text column)
+./bench.py --data cx-cmu/deepresearchgym-agentic-search-logs
+
+# Long-context input-length sweep (1k/4k/8k/16k, 10 samples each, TTFT chart)
+./bench.py --long-contexts
+
+# Combined: gpt-oss-20b EP comparison with long-context slices on deepresearchgym dataset
+nohup ./bench.py \
+  --models openai/gpt-oss-20b \
+  --tp 4 \
+  --ep-compare \
+  --long-contexts \
+  --data cx-cmu/deepresearchgym-agentic-search-logs \
+  > /dev/null 2>&1 &
+
+# Sanity test with EP compare + long contexts (single gpt-oss-20b config)
+./bench.py --sanity --models openai/gpt-oss-20b --tp 4 --ep-compare --long-contexts
+
 # Rebuild dashboard from completed results
 python3 -c "
 from bench import build_dashboard_html
@@ -423,7 +447,34 @@ bash results/YYYYMMDD_HHMM/serve_dashboard.sh
 
 ---
 
-**Last Updated**: March 3, 2026 — Removed xpu-smi code entirely (`monitor.py`, `host_gpu_monitor.py`, `GpuMonitor`, `gpu_data`); added nohup.out fix (Rule 25 / Lesson 25); updated `.gitignore` to catch stray `/*.log`/`/*.pid`/`/*.out` at repo root
+### 26. Israel Timezone — Use `_israel_now()` Not Raw `ZoneInfo`
+**RULE**: Never call `datetime.now(ZoneInfo("Asia/Jerusalem"))` directly. Use `_israel_now()` in `bench.py` which wraps it in try/except and falls back to UTC+2 fixed offset if `tzdata` is not installed. This prevents silent UTC fallback that produces wrong timestamps on a fresh container.
+
+### 27. Incomplete Run Auto-Cleanup
+**RULE**: On every fresh start (not `--resume`), `_clean_incomplete_runs(results_dir)` removes subdirectories with zero `*_benchmarks.json` files. These are safe to delete (no useful data). The cleanup prints what was removed. The function is in `bench.py`.
+
+### 28. Long-Context Benchmarks — `--long-contexts`
+**RULE**: When `--long-contexts` is set:
+- `max_model_len` is auto-raised to 16384 if it's lower.
+- `prepare_long_context_datasets()` creates JSONL files under `out_dir/datasets/`, one per target length. Cached per run (not globally) — cache key includes source stem and length label.
+- Each LC benchmark uses `lc_mode=True` in `run_guidellm()`: synchronous profile, 10 requests, no warmup/cooldown.
+- Results saved as `{cfg_name}_lc{N}k_benchmarks.json` (e.g. `..._lc4k_benchmarks.json`).
+- LC slices use `output_tokens_count=512` (not 1024) to keep total generation time manageable at 16k input.
+
+### 29. Generic HF Dataset — `--data`
+**RULE**: `prepare_hf_dataset(hf_name, ...)` in `dataset.py` auto-detects the text column:
+1. Priority list match (prompt/text/input/content/instruction/query/question/document/context/passage/problem...).
+2. Fallback: string column with longest median text length (sampled from first 50 rows).
+Cached to `out_dir/datasets/{safe_name}_{split}_v1.jsonl`. Output: `{prompt, output_tokens_count}` rows.
+
+### 30. `--ep-compare` vs `--ep`
+**RULE**: `--ep-compare` is a superset of `--ep`:
+- Adds EP variants (same as `--ep`).
+- ALSO ensures the non-EP base configs for those same `model+tp+quant` combos are in the matrix, even if they would have been filtered by `--models`.
+- **Mutually exclusive** with `--ep` — validated at startup with `sys.exit()`.
+- Both `_EP_VARIANTS` list and the dedup loop live in `bench.py::main()` (not `config.py`).
+
+**Last Updated**: March 3, 2026 — Added --ep-compare, --data, --long-contexts, _israel_now(), _clean_incomplete_runs(); updated for new features
 **Primary Maintainer**: Daniel Korat, Intel
 
 ---
@@ -459,3 +510,6 @@ Mistakes that happened once and must not repeat:
 | 23 | `pip install -e "/root/guidellm-bench[guidellm]"` — path missing `.` → installed the package but without the `[guidellm]` extra, so guidellm itself was not installed | Correct form is `pip install --break-system-packages -e "/root/guidellm-bench/.[guidellm]"` (note the `/./`). |
 | 24 | `docker run -e http_proxy="$PROXY"` where PROXY was set using `${http_proxy:-fallback}` in a non-login shell — the outer env var wasn't available to the script, resulting in an empty-proxy container | Always pass literal proxy values or verify the env var is set before using it as a docker -e argument. In `ensure_container_running()` this is handled with `os.environ.get("http_proxy", "http://proxy-dmz.intel.com:911/")`. |
 | 25 | `nohup ./bench.py &` without stdout redirect creates `nohup.out` at the repo root — even though bench.py tees via `_Tee`, `nohup` creates the file before Python starts. | Always run `nohup ./bench.py > /dev/null 2>&1 &`. bench.py self-logs everything to `out_dir/bench.log`, so `/dev/null` discards nothing important. See Rule 25 / Rule 19. |
+| 26 | `datetime.now(ZoneInfo("Asia/Jerusalem"))` silently falls back to UTC when `tzdata` is not installed, producing wrong directory timestamps. | Use `_israel_now()` which wraps in try/except and falls back to UTC+2 fixed offset. See Rule 26. |
+| 27 | Long-context output tokens set to 1024 when input is up to 16384 — causes context overflow on large inputs (prompt + max_tokens > max_model_len). | Use `output_tokens_count=512` for LC slices (half of 1024), giving headroom. See Rule 28. |
+| 28 | LC dataset cache stored globally in `/root/` — filename collision if two different source datasets happen to have the same stem. | Store LC JSONL files under `out_dir/datasets/` (per-run); include source stem in filename. |

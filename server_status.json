@@ -1,0 +1,13 @@
+{
+  "model": "openai/gpt-oss-20b",
+  "tp": 4,
+  "quant": null,
+  "eager": true,
+  "expert_parallel_size": null,
+  "speculative_config": null,
+  "max_model_len": 16384,
+  "port": 8000,
+  "pid": 83,
+  "log_path": "/root/guidellm-bench/results/20260303_1034/logs/openai_gpt-oss-20b_tp4_quant-none_server.log",
+  "status": "ready"
+}

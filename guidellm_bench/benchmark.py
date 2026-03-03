@@ -22,6 +22,7 @@ def run_guidellm(
     log_path: Path,
     sweep: bool = True,
     dataset_path: Optional[str] = None,
+    lc_mode: bool = False,
 ) -> Optional[dict]:
     """Run a guidellm benchmark and return the parsed JSON result dict.
 
@@ -34,7 +35,9 @@ def run_guidellm(
         log_path:     File to capture stdout/stderr.
         sweep:        True → synchronous profile with warmup/cooldown (full runs).
                       False → concurrent profile, single rate (sanity).
-        dataset_path: Path to AIME JSONL file; None → synthetic data.
+        dataset_path: Path to JSONL file; None → synthetic data.
+        lc_mode:      True → long-context slice (synchronous, 10 reqs, no warmup/cooldown).
+                      Overrides sweep and num_prompts for the slice.
 
     Returns:
         Parsed benchmarks.json dict, or None on failure.
@@ -54,13 +57,21 @@ def run_guidellm(
             # output_tokens_count maps to max_tokens in the completions request.
             "--data-samples -1",
         ]
-        effective_requests = 30  # all AIME problems
+        effective_requests = 10 if lc_mode else 30  # all AIME / LC slice size
     else:
         data_args = [f"--data 'prompt_tokens={input_len},output_tokens={output_len}'"]
         effective_requests = num_prompts
 
     # ---- profile / limits -------------------------------------------
-    if sweep:
+    if lc_mode:
+        # Long-context slice: serial, no warmup/cooldown (only 10 samples)
+        profile_args = [
+            "--profile synchronous",
+            f"--max-requests {effective_requests}",
+            "--max-errors 5",
+            "--max-seconds 900",
+        ]
+    elif sweep:
         profile_args = [
             "--profile synchronous",
             f"--max-requests {effective_requests}",
