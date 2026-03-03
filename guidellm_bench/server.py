@@ -104,12 +104,17 @@ def start_server(cfg: Config, max_model_len: int, log_path: Path) -> subprocess.
     )
 
 
-def wait_for_server(timeout: int, log_path: Optional[Path] = None) -> bool:
+def wait_for_server(
+    timeout: int,
+    log_path: Optional[Path] = None,
+    proc: Optional[subprocess.Popen] = None,
+) -> bool:
     """Poll /health until the server responds or *timeout* seconds elapse.
 
-    Raises XpuKernelHangError if the OperatorEntry.cpp:208 XPU hang pattern
-    is detected in *log_path* after _HANG_DETECT_AFTER_S seconds, signalling
-    that the container must be recreated (the caller should exit with code 42).
+    Raises XpuKernelHangError only when BOTH conditions hold:
+      1. The OperatorEntry.cpp:208 pattern is in the log (XPU driver warning).
+      2. The vLLM process is still alive (not crashed) but /health never responds.
+    A clean server crash (proc has exited) returns False without raising.
     """
     print(f"  Waiting for server (timeout={timeout}s)...", flush=True)
     time.sleep(10)
@@ -140,11 +145,19 @@ def wait_for_server(timeout: int, log_path: Optional[Path] = None) -> bool:
             # After _HANG_DETECT_AFTER_S with no health, check for the XPU
             # kernel-registration hang pattern in the server log.
             if elapsed >= _HANG_DETECT_AFTER_S and _log_has_xpu_hang(log_path):
-                raise XpuKernelHangError(
-                    f"XPU kernel registration hang detected after {elapsed}s "
-                    f"(OperatorEntry.cpp:208 in server log, server never healthy). "
-                    f"Container must be recreated."
-                )
+                # Only a true XPU hang if the process is still alive.
+                # A crashed process (proc.poll() is not None) means a model
+                # loading failure — return False, don't reboot the host.
+                proc_alive = (proc is None) or (proc.poll() is None)
+                if proc_alive:
+                    raise XpuKernelHangError(
+                        f"XPU kernel registration hang detected after {elapsed}s "
+                        f"(OperatorEntry.cpp:208 in server log, process alive but never healthy). "
+                        f"Container must be recreated."
+                    )
+                else:
+                    print("  Server process has exited (crash, not XPU hang) — treating as startup failure.", flush=True)
+                    return False
 
     print(f"  ERROR: server did not become ready within {timeout}s", flush=True)
     return False

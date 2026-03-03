@@ -226,7 +226,7 @@ def main() -> None:
                     configs.append(Config(model=model, tp=tp, quant=quant, eager=eager))
 
     # Expert Parallelism (EP) variants for MoE models — opt-in via --ep
-    if not args.sanity and args.ep:
+    if args.ep:
         ep_configs = [
             # gpt-oss-20b: mxfp4 baked in (no quant), tp=4 with ep=4
             Config(model="openai/gpt-oss-20b",    tp=4, quant=None,  eager=True, expert_parallel_size=4),
@@ -276,7 +276,7 @@ def main() -> None:
         proc = start_server(cfg, max_model_len, log_dir / f"{cfg.name}_server.log")
         _server_log = log_dir / f"{cfg.name}_server.log"
         try:
-            ready = wait_for_server(timeout_startup, log_path=_server_log)
+            ready = wait_for_server(timeout_startup, log_path=_server_log, proc=proc)
         except XpuKernelHangError as _hang:
             print(f"  FATAL: {_hang}", flush=True)
             print(
