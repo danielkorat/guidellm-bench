@@ -383,7 +383,13 @@ def main() -> None:
             print(f"  WARNING: '{args.data}' unavailable — falling back to AIME 2024", flush=True)
             dataset_path = prepare_aime_dataset(output_tokens=1024)
     else:
-        dataset_path = prepare_aime_dataset(output_tokens=1024)
+        if getattr(args, "ablation", False):
+            # Ablation auto-discovers the dataset from the last full run (via
+            # _find_last_run_dataset inside _run_ablation).  Leave dataset_path=None
+            # so that discovery runs; _run_ablation falls back to AIME if nothing found.
+            dataset_path = None
+        else:
+            dataset_path = prepare_aime_dataset(output_tokens=1024)
 
     # Prepare long-context JSONL slices (if --long-contexts and we have a source dataset)
     lc_datasets: dict[int, str | None] = {}   # {token_len: path | None}

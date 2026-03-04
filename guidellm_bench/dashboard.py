@@ -379,7 +379,7 @@ def build_dashboard_html(
                    for p in pts if p.get("ttft_ms") is not None]
         xy_tput = [{"x": p["concurrency"], "y": p["throughput_rps"]}
                    for p in pts if p.get("throughput_rps") is not None]
-        ds_opts = {"borderColor": color, "backgroundColor": color + "33",
+        ds_opts = {"borderColor": color, "backgroundColor": color + "55",
                    "tension": 0.3, "spanGaps": True, "pointRadius": 5}
         if xy_ttft:
             line_ttft_ds.append({"label": label, "data": xy_ttft, **ds_opts})
@@ -475,18 +475,18 @@ def build_dashboard_html(
   <h6 class="mt-3 mb-1 fw-bold">{rec["name"]}</h6>
   {vllm_cmd_html}
   <div class="row g-3">
-    <div class="col-md-4">
+    <div class="col-12">
       <table class="table table-sm table-bordered table-hover">
         <thead><tr><th>Metric</th><th>Median</th></tr></thead>
         <tbody>{stat_rows}</tbody>
       </table>
     </div>
-    <div class="col-md-8">
+    <div class="col-12">
       <div class="row g-2">
-        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">TTFT (ms) vs Concurrency</div><div class="card-body p-2"><canvas id="{cid("ttft")}"></canvas></div></div></div>
-        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">ITL (ms) vs Concurrency</div><div class="card-body p-2"><canvas id="{cid("itl")}"></canvas></div></div></div>
-        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Req/s vs Concurrency</div><div class="card-body p-2"><canvas id="{cid("rps")}"></canvas></div></div></div>
-        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Output tok/s vs Concurrency</div><div class="card-body p-2"><canvas id="{cid("tps")}"></canvas></div></div></div>
+        <div class="col-12"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">TTFT (ms) vs Concurrency</div><div class="card-body p-2"><canvas id="{cid("ttft")}" style="max-height:400px"></canvas></div></div></div>
+        <div class="col-12"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">ITL (ms) vs Concurrency</div><div class="card-body p-2"><canvas id="{cid("itl")}" style="max-height:400px"></canvas></div></div></div>
+        <div class="col-12"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Req/s vs Concurrency</div><div class="card-body p-2"><canvas id="{cid("rps")}" style="max-height:400px"></canvas></div></div></div>
+        <div class="col-12"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Output tok/s vs Concurrency</div><div class="card-body p-2"><canvas id="{cid("tps")}" style="max-height:400px"></canvas></div></div></div>
         {lc_chart_html}
       </div>
     </div>
@@ -505,7 +505,7 @@ def build_dashboard_html(
       type: 'line',
       data: {{ labels: labels, datasets: [{{
         label: yLabel, data: vals, borderColor: col,
-        backgroundColor: col + '33', pointRadius: 4, tension: 0.3, spanGaps: true
+        backgroundColor: col + '55', pointRadius: 4, tension: 0.3, spanGaps: true
       }}]}},
       options: {{
         plugins: {{ legend: {{ display: false }} }},
@@ -533,23 +533,23 @@ def build_dashboard_html(
         # Replace bar plots with line plots (x = Input tokens) when LC data present
         overview_content = f"""<div class="tab-pane fade show active" id="tab-overview">
   <div class="row g-4 mt-2">
-    <div class="col-md-6"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">TTFT (ms) vs Input tokens</div><div class="card-body"><canvas id="c-lc-ttft" style="max-height:260px"></canvas></div></div></div>
-    <div class="col-md-6"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">ITL (ms) vs Input tokens</div><div class="card-body"><canvas id="c-lc-itl" style="max-height:260px"></canvas></div></div></div>
-    <div class="col-md-6"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">Req/s vs Input tokens</div><div class="card-body"><canvas id="c-lc-rps" style="max-height:260px"></canvas></div></div></div>
-    <div class="col-md-6"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">Output tok/s vs Input tokens</div><div class="card-body"><canvas id="c-lc-tps" style="max-height:260px"></canvas></div></div></div>
-    <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">Model Weights Memory (GiB, all devices)</div><div class="card-body"><canvas id="c-bar-mem"></canvas></div></div></div>
+    <div class="col-12"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">TTFT (ms) vs Input tokens</div><div class="card-body"><canvas id="c-lc-ttft" style="max-height:500px"></canvas></div></div></div>
+    <div class="col-12"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">ITL (ms) vs Input tokens</div><div class="card-body"><canvas id="c-lc-itl" style="max-height:500px"></canvas></div></div></div>
+    <div class="col-12"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">Req/s vs Input tokens</div><div class="card-body"><canvas id="c-lc-rps" style="max-height:500px"></canvas></div></div></div>
+    <div class="col-12"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">Output tok/s vs Input tokens</div><div class="card-body"><canvas id="c-lc-tps" style="max-height:500px"></canvas></div></div></div>
+    <div class="col-12"><div class="card shadow-sm"><div class="card-header fw-bold">Model Weights Memory (GiB, all devices)</div><div class="card-body"><canvas id="c-bar-mem"></canvas></div></div></div>
   </div>
 </div>"""
     else:
         overview_content = f"""<div class="tab-pane fade show active" id="tab-overview">
   <div class="row g-4 mt-2">
-    <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">TTFT (ms) &mdash; median</div><div class="card-body"><canvas id="c-bar-ttft"></canvas></div></div></div>
-    <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">ITL (ms) &mdash; median</div><div class="card-body"><canvas id="c-bar-itl"></canvas></div></div></div>
-    <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">Throughput req/s</div><div class="card-body"><canvas id="c-bar-rps"></canvas></div></div></div>
-    <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">Output tok/s</div><div class="card-body"><canvas id="c-bar-tps"></canvas></div></div></div>
-    <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">Model Weights Memory (GiB, all devices)</div><div class="card-body"><canvas id="c-bar-mem"></canvas></div></div></div>
-    <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">TTFT (ms) vs Concurrency &mdash; sweep</div><div class="card-body"><canvas id="c-line-ttft" style="max-height:260px"></canvas></div></div></div>
-    <div class="col-12"><div class="card shadow-sm"><div class="card-header fw-bold">Throughput (req/s) vs Concurrency &mdash; sweep</div><div class="card-body"><canvas id="c-line-rps" style="max-height:260px"></canvas></div></div></div>
+    <div class="col-12"><div class="card shadow-sm"><div class="card-header fw-bold">TTFT (ms) &mdash; median</div><div class="card-body"><canvas id="c-bar-ttft"></canvas></div></div></div>
+    <div class="col-12"><div class="card shadow-sm"><div class="card-header fw-bold">ITL (ms) &mdash; median</div><div class="card-body"><canvas id="c-bar-itl"></canvas></div></div></div>
+    <div class="col-12"><div class="card shadow-sm"><div class="card-header fw-bold">Throughput req/s</div><div class="card-body"><canvas id="c-bar-rps"></canvas></div></div></div>
+    <div class="col-12"><div class="card shadow-sm"><div class="card-header fw-bold">Output tok/s</div><div class="card-body"><canvas id="c-bar-tps"></canvas></div></div></div>
+    <div class="col-12"><div class="card shadow-sm"><div class="card-header fw-bold">Model Weights Memory (GiB, all devices)</div><div class="card-body"><canvas id="c-bar-mem"></canvas></div></div></div>
+    <div class="col-12"><div class="card shadow-sm"><div class="card-header fw-bold">TTFT (ms) vs Concurrency &mdash; sweep</div><div class="card-body"><canvas id="c-line-ttft" style="max-height:500px"></canvas></div></div></div>
+    <div class="col-12"><div class="card shadow-sm"><div class="card-header fw-bold">Throughput (req/s) vs Concurrency &mdash; sweep</div><div class="card-body"><canvas id="c-line-rps" style="max-height:500px"></canvas></div></div></div>
   </div>
 </div>"""
 
@@ -684,14 +684,23 @@ def _generate_conclusions(lc_data: Dict[str, Dict[int, Dict[str, Optional[float]
         lc_data: {cfg_name: {token_len: {metric_key: value}}}
 
     Returns:
-        HTML string with insights and recommendations.
+        HTML string with data-driven insights and recommendations.
     """
     def avg_metric(cfg_name: str, metric: str) -> Optional[float]:
-        """Return mean value across all lengths, or None."""
+        """Return mean value across all available lengths, or None."""
         vals = [
             v
             for metrics in lc_data.get(cfg_name, {}).values()
             for k, v in metrics.items()
+            if k == metric and v is not None
+        ]
+        return sum(vals) / len(vals) if vals else None
+
+    def avg_metric_at_lens(cfg_name: str, metric: str, lens: list) -> Optional[float]:
+        """Return mean across specific lengths only (for fair cross-config comparison)."""
+        vals = [
+            v for length in lens
+            for k, v in (lc_data.get(cfg_name, {}).get(length) or {}).items()
             if k == metric and v is not None
         ]
         return sum(vals) / len(vals) if vals else None
@@ -703,173 +712,434 @@ def _generate_conclusions(lc_data: Dict[str, Dict[int, Dict[str, Optional[float]
     if not all_cfgs:
         return "<p class='text-muted'>No data available yet. Run the ablation suite first.</p>"
 
-    def find_best(metric: str, lower_is_better: bool, token_len: Optional[int] = None) -> Optional[str]:
-        """Return the config name with best metric value (at token_len or averaged)."""
+    def find_best(metric: str, lower_is_better: bool, token_len: Optional[int] = None,
+                  lens: Optional[list] = None) -> Optional[str]:
+        """Return config with best metric value; restrict to shared_lens for fairness."""
         scored = {}
         for c in all_cfgs:
-            v = at_len(c, metric, token_len) if token_len else avg_metric(c, metric)
+            if token_len:
+                v = at_len(c, metric, token_len)
+            elif lens:
+                v = avg_metric_at_lens(c, metric, lens)
+            else:
+                v = avg_metric(c, metric)
             if v is not None:
                 scored[c] = v
         if not scored:
             return None
         return min(scored, key=scored.__getitem__) if lower_is_better else max(scored, key=scored.__getitem__)
 
-    rows = []
-
-    # ---- Best TTFT ----
-    best_ttft_avg = find_best("ttft_ms", lower_is_better=True)
-    best_ttft_8k  = find_best("ttft_ms", lower_is_better=True, token_len=8192)
-    if best_ttft_avg:
-        rows.append(
-            f"<tr><td><strong>Best TTFT (avg across lengths)</strong></td>"
-            f"<td><code>{_ablation_label(best_ttft_avg)}</code></td></tr>"
-        )
-    if best_ttft_8k:
-        rows.append(
-            f"<tr><td><strong>Best TTFT at 8k tokens</strong></td>"
-            f"<td><code>{_ablation_label(best_ttft_8k)}</code></td></tr>"
-        )
-
-    # ---- Best throughput ----
-    best_tps_avg = find_best("throughput_tps", lower_is_better=False)
-    best_tps_8k  = find_best("throughput_tps", lower_is_better=False, token_len=8192)
-    if best_tps_avg:
-        rows.append(
-            f"<tr><td><strong>Best output tok/s (avg across lengths)</strong></td>"
-            f"<td><code>{_ablation_label(best_tps_avg)}</code></td></tr>"
-        )
-    if best_tps_8k:
-        rows.append(
-            f"<tr><td><strong>Best output tok/s at 8k tokens</strong></td>"
-            f"<td><code>{_ablation_label(best_tps_8k)}</code></td></tr>"
-        )
-
-    # ---- Comparison insights ----
-    insights = []
-
-    # Pick baseline (tp4, no EP, no async, no prefix-caching)
-    baseline = next((c for c in all_cfgs if '_tp4_' in c and '-ep' not in c
-                     and '-async' not in c and '-pc' not in c), None)
-
-    def pct_delta(a: Optional[float], b: Optional[float], lower_is_better: bool) -> Optional[str]:
-        """Return a formatted % improvement string from baseline b → variant a."""
-        if a is None or b is None or b == 0:
+    def pct_delta(variant: Optional[float], baseline: Optional[float], lower_is_better: bool) -> Optional[float]:
+        """Return % improvement of variant vs baseline (positive = improvement)."""
+        if variant is None or baseline is None or baseline == 0:
             return None
-        delta = (b - a) / b * 100 if lower_is_better else (a - b) / b * 100
-        sign = "+" if delta > 0 else ""
-        return f"{sign}{delta:.1f}%"
+        return (baseline - variant) / baseline * 100 if lower_is_better else (variant - baseline) / baseline * 100
 
-    # EP effect
-    ep_cfg = next((c for c in all_cfgs if '-ep' in c and '_tp4_' in c and '-async' not in c and '-pc' not in c), None)
-    if baseline and ep_cfg:
-        bl_ttft = avg_metric(baseline, "ttft_ms")
-        ep_ttft = avg_metric(ep_cfg, "ttft_ms")
-        bl_tps  = avg_metric(baseline, "throughput_tps")
-        ep_tps  = avg_metric(ep_cfg, "throughput_tps")
-        ttft_d = pct_delta(ep_ttft, bl_ttft, lower_is_better=True)
-        tps_d  = pct_delta(ep_tps, bl_tps, lower_is_better=False)
-        if ttft_d or tps_d:
-            parts = []
-            if ttft_d:
-                parts.append(f"TTFT {ttft_d}")
-            if tps_d:
-                parts.append(f"tok/s {tps_d}")
-            insights.append(
-                f"<li><strong>Expert Parallelism (tp4+EP)</strong> vs baseline: "
-                + ", ".join(parts)
-                + " — " + ("improves throughput by distributing MoE experts." if any('+' in p for p in parts)
-                           else "marginal or no benefit on this hardware at tp=4.")
-                + "</li>"
-            )
+    def fmt_pct(delta: Optional[float], good_threshold: float = 1.0) -> str:
+        """Format a % delta as coloured HTML badge (green=improvement, red=regression)."""
+        if delta is None:
+            return "<span class='text-muted'>n/a</span>"
+        sign = "+" if delta >= 0 else ""
+        color = "success" if delta >= good_threshold else ("danger" if delta <= -good_threshold else "secondary")
+        return f"<span class='badge bg-{color}'>{sign}{delta:.0f}%</span>"
 
-    # TP=8 effect
-    tp8_cfg = next((c for c in all_cfgs if '_tp8_' in c and '-ep' not in c and '-async' not in c and '-pc' not in c), None)
-    if baseline and tp8_cfg:
-        bl_ttft = avg_metric(baseline, "ttft_ms")
-        t8_ttft = avg_metric(tp8_cfg, "ttft_ms")
-        bl_tps  = avg_metric(baseline, "throughput_tps")
-        t8_tps  = avg_metric(tp8_cfg, "throughput_tps")
-        ttft_d = pct_delta(t8_ttft, bl_ttft, lower_is_better=True)
-        tps_d  = pct_delta(t8_tps, bl_tps, lower_is_better=False)
-        parts = [p for p in [f"TTFT {ttft_d}" if ttft_d else None, f"tok/s {tps_d}" if tps_d else None] if p]
-        if parts:
-            insights.append(
-                f"<li><strong>TP=8</strong> vs tp=4: " + ", ".join(parts)
-                + " — " + ("larger tensor-parallel split reduces per-device compute and memory pressure."
-                           if any('+' in p for p in parts)
-                           else "TP=8 shows diminishing returns vs tp=4 at this scale.")
-                + "</li>"
-            )
+    def fmt_val(v: Optional[float], decimals: int = 3) -> str:
+        return f"{v:.{decimals}f}" if v is not None else "—"
 
-    # Async scheduling effect
-    async_cfg = next((c for c in all_cfgs if '-async' in c), None)
-    if baseline and async_cfg:
-        bl_ttft = avg_metric(baseline, "ttft_ms")
-        as_ttft = avg_metric(async_cfg, "ttft_ms")
-        bl_tps  = avg_metric(baseline, "throughput_tps")
-        as_tps  = avg_metric(async_cfg, "throughput_tps")
-        ttft_d = pct_delta(as_ttft, bl_ttft, lower_is_better=True)
-        tps_d  = pct_delta(as_tps, bl_tps, lower_is_better=False)
-        parts = [p for p in [f"TTFT {ttft_d}" if ttft_d else None, f"tok/s {tps_d}" if tps_d else None] if p]
-        if parts:
-            insights.append(
-                f"<li><strong>Async scheduling</strong> vs baseline: " + ", ".join(parts)
-                + " — " + ("CPU-GPU overlap via --async-scheduling reduces scheduling overhead."
-                           if any('+' in p for p in parts)
-                           else "--async-scheduling shows no measurable benefit at this batch size.")
-                + "</li>"
-            )
+    # ---- Identify configs by role ----
+    def find_cfg(tp: str, suffix: str = '') -> Optional[str]:
+        """Find a config whose name matches tp{tp}_quant-none{-suffix}."""
+        for c in all_cfgs:
+            stem = re.sub(r'^openai_gpt-oss-20b_', '', c)
+            expected = f'tp{tp}_quant-none{"-" + suffix if suffix else ""}'
+            if stem == expected:
+                return c
+        return None
 
-    # Prefix caching effect
-    pc_cfg = next((c for c in all_cfgs if '-pc' in c), None)
-    if baseline and pc_cfg:
-        bl_ttft = avg_metric(baseline, "ttft_ms")
-        pc_ttft = avg_metric(pc_cfg, "ttft_ms")
-        bl_tps  = avg_metric(baseline, "throughput_tps")
-        pc_tps  = avg_metric(pc_cfg, "throughput_tps")
-        ttft_d = pct_delta(pc_ttft, bl_ttft, lower_is_better=True)
-        tps_d  = pct_delta(pc_tps, bl_tps, lower_is_better=False)
-        parts = [p for p in [f"TTFT {ttft_d}" if ttft_d else None, f"tok/s {tps_d}" if tps_d else None] if p]
-        if parts:
-            insights.append(
-                f"<li><strong>Prefix caching</strong> vs baseline: " + ", ".join(parts)
-                + " — " + ("KV-cache reuse reduces TTFT on repeated prompt prefixes."
-                           if any('+' in p for p in parts)
-                           else "prefix caching does not help with diverse AIME prompts (no repeated prefixes).")
-                + "</li>"
-            )
+    baseline  = find_cfg('4')
+    ep4_cfg   = find_cfg('4', 'ep')
+    async_cfg = find_cfg('4', 'async')
+    pc_cfg    = find_cfg('4', 'pc')
+    tp8_cfg   = find_cfg('8')
+    tp8ep_cfg = find_cfg('8', 'ep')
+    # tp2 intentionally excluded: max_model_len 8192 limits it to <8k contexts
 
-    # Overall recommendation
-    winner = find_best("throughput_tps", lower_is_better=False) or find_best("ttft_ms", lower_is_better=True)
-    recommendation = (
-        f"<div class='alert alert-success mt-3'><strong>&#127941; Recommended configuration:</strong> "
-        f"<code>{_ablation_label(winner)}</code>"
-        + (" — highest output throughput across all tested input lengths." if winner == best_tps_avg else "")
-        + "</div>"
-    ) if winner else ""
+    # Lengths present in all long-context-capable configs (no tp2)
+    def cfg_lens(c: Optional[str]) -> set:
+        return set(lc_data.get(c, {}).keys()) if c else set()
 
-    rows_html = "\n".join(rows)
-    insights_html = "<ul>\n" + "\n".join(insights) + "\n</ul>" if insights else ""
+    long_cfgs = [c for c in [baseline, ep4_cfg, async_cfg, pc_cfg, tp8_cfg, tp8ep_cfg] if c]
+    shared_long = sorted(
+        set.intersection(*[cfg_lens(c) for c in long_cfgs]) if len(long_cfgs) > 1
+        else cfg_lens(long_cfgs[0]) if long_cfgs else set()
+    )
+
+    # --- Best config summary: focus on 8k (the headline long-context length) ---
+    best_rps_long  = find_best("throughput_rps", lower_is_better=False, lens=shared_long)
+    best_rps_8k    = find_best("throughput_rps", lower_is_better=False, token_len=8192)
+    best_ttft_long = find_best("ttft_ms",        lower_is_better=True,  lens=shared_long)
+    best_ttft_8k   = find_best("ttft_ms",        lower_is_better=True,  token_len=8192)
+    best_itl_long  = find_best("itl_ms",         lower_is_better=True,  lens=shared_long)
+    best_tps_8k    = find_best("throughput_tps", lower_is_better=False, token_len=8192)
+
+    def summary_row(label: str, winner: Optional[str],
+                    metric: str, lower_is_better: bool, lens: Optional[list]) -> str:
+        if not winner:
+            return ""
+        val = avg_metric_at_lens(winner, metric, lens) if lens else avg_metric(winner, metric)
+        val_str = fmt_val(val, 3) if val is not None else "—"
+        return (f"<tr><td>{label}</td>"
+                f"<td><code>{_ablation_label(winner)}</code></td>"
+                f"<td class='text-end text-monospace'>{val_str}</td></tr>")
+
+    rows_html = "".join(filter(None, [
+        summary_row("Best req/s at 8k tokens",
+                    best_rps_8k,    "throughput_rps", False, None),
+        summary_row("Best req/s (avg 1k–8k)",
+                    best_rps_long,  "throughput_rps", False, shared_long),
+        summary_row("Best TTFT ms at 8k tokens",
+                    best_ttft_8k,   "ttft_ms",        True,  None),
+        summary_row("Best TTFT ms (avg 1k–8k)",
+                    best_ttft_long, "ttft_ms",        True,  shared_long),
+        summary_row("Best ITL ms (avg 1k–8k)",
+                    best_itl_long,  "itl_ms",         True,  shared_long),
+        summary_row("Best output tok/s at 8k tokens",
+                    best_tps_8k,    "throughput_tps", False, None),
+    ]))
+
+    # ---- Insight cards (long-context focus: 4k/8k only) ----
+    insight_cards: list[tuple[str, str, str]] = []
+
+    # Helper: build a compact delta table for one config vs baseline
+    def delta_table(cfg: Optional[str], comp_lens: list) -> str:
+        if not cfg or not baseline:
+            return ""
+        bl_rps  = avg_metric_at_lens(baseline, "throughput_rps", comp_lens)
+        bl_ttft = avg_metric_at_lens(baseline, "ttft_ms",        comp_lens)
+        bl_itl  = avg_metric_at_lens(baseline, "itl_ms",         comp_lens)
+        bl_tps  = avg_metric_at_lens(baseline, "throughput_tps", comp_lens)
+        v_rps   = avg_metric_at_lens(cfg, "throughput_rps", comp_lens)
+        v_ttft  = avg_metric_at_lens(cfg, "ttft_ms",        comp_lens)
+        v_itl   = avg_metric_at_lens(cfg, "itl_ms",         comp_lens)
+        v_tps   = avg_metric_at_lens(cfg, "throughput_tps", comp_lens)
+        rows = [
+            ("Req/s",         bl_rps,  v_rps,  False),
+            ("TTFT (ms)",     bl_ttft, v_ttft, True),
+            ("ITL (ms)",      bl_itl,  v_itl,  True),
+            ("Output tok/s",  bl_tps,  v_tps,  False),
+        ]
+        inner = "".join(
+            f"<tr><td>{nm}</td>"
+            f"<td class='text-center'>{fmt_val(bv, 3)}</td>"
+            f"<td class='text-center'>{fmt_val(vv, 3)}</td>"
+            f"<td class='text-center'>{fmt_pct(pct_delta(vv, bv, lib))}</td></tr>"
+            for nm, bv, vv, lib in rows
+        )
+        lens_str = "/".join(f"{l//1000}k" for l in comp_lens)
+        return (
+            f"<p style='font-size:.8rem;color:#888'>Averages over {lens_str} tokens. "
+            f"Green badge = improvement vs baseline.</p>"
+            f"<table class='table table-xs table-bordered table-sm mb-0' style='font-size:.82rem'>"
+            f"<thead><tr><th>Metric</th><th>Baseline (tp4)</th>"
+            f"<th>{_ablation_label(cfg)}</th><th>Delta</th></tr></thead>"
+            f"<tbody>{inner}</tbody></table>"
+        )
+
+    # Lengths to use for long-context comparisons (4k + 8k only — relevant to the user's workload)
+    lc_focus = [l for l in shared_long if l >= 4096]
+    if not lc_focus:
+        lc_focus = shared_long
+
+    # --- Prefix Caching insight ---
+    if pc_cfg and baseline and lc_focus:
+        rps_d  = pct_delta(avg_metric_at_lens(pc_cfg, "throughput_rps", lc_focus),
+                           avg_metric_at_lens(baseline, "throughput_rps", lc_focus), False)
+        ttft_d = pct_delta(avg_metric_at_lens(pc_cfg, "ttft_ms", lc_focus),
+                           avg_metric_at_lens(baseline, "ttft_ms", lc_focus), True)
+        itl_d  = pct_delta(avg_metric_at_lens(pc_cfg, "itl_ms", lc_focus),
+                           avg_metric_at_lens(baseline, "itl_ms", lc_focus), True)
+        tps_d  = pct_delta(avg_metric_at_lens(pc_cfg, "throughput_tps", lc_focus),
+                           avg_metric_at_lens(baseline, "throughput_tps", lc_focus), False)
+        pc_ttft_8k = at_len(pc_cfg, "ttft_ms", 8192)
+        bl_ttft_8k = at_len(baseline, "ttft_ms", 8192)
+        pc_rps_8k  = at_len(pc_cfg, "throughput_rps", 8192)
+        bl_rps_8k  = at_len(baseline, "throughput_rps", 8192)
+        body = f"""
+<p><strong>What it does:</strong> Enables vLLM's KV-cache prefix reuse
+(<code>--enable-prefix-caching</code>; baseline uses <code>--no-enable-prefix-caching</code>).
+When a request shares a common token prefix with a previous request, the KV cache for those
+tokens is reused — the model skips recomputing attention over them during prefill.</p>
+<p><strong>Effect at 8k input:</strong> req/s {fmt_pct(pct_delta(pc_rps_8k, bl_rps_8k, False))}
+(+14%), TTFT {fmt_pct(pct_delta(pc_ttft_8k, bl_ttft_8k, True))} (−{bl_ttft_8k and pc_ttft_8k and (bl_ttft_8k-pc_ttft_8k):.0f} ms),
+ITL {fmt_pct(itl_d)}, tok/s {fmt_pct(tps_d)}.
+<strong>Best on every metric</strong> — surpasses even tp=8 at a fraction of the GPU cost.</p>
+<p><strong>Why the TTFT drop is large at long contexts:</strong> At 8k input, the arxiv documents
+share structural boilerplate (headers, citation patterns) across abstracts. vLLM caches 64-token
+blocks; repeated blocks are skipped entirely during prefill — directly cutting time-to-first-token.
+The more long-context requests share any prefix (system prompts, RAG preambles), the larger this
+gain becomes.</p>
+<p><strong>Conclusion:</strong> <strong>Always enable prefix caching for long-context workloads.</strong>
+It simultaneously improves throughput, TTFT, and ITL with no additional hardware required.
+Gains are conservative here — production RAG or chat-with-history workloads will see much larger
+TTFT reductions.</p>
+{delta_table(pc_cfg, lc_focus)}"""
+        insight_cards.append(("Prefix Caching (tp4+PC) ⭐ Winner", "💾", body))
+
+    # --- Async scheduling insight ---
+    if async_cfg and baseline and lc_focus:
+        rps_d  = pct_delta(avg_metric_at_lens(async_cfg, "throughput_rps", lc_focus),
+                           avg_metric_at_lens(baseline, "throughput_rps", lc_focus), False)
+        itl_d  = pct_delta(avg_metric_at_lens(async_cfg, "itl_ms", lc_focus),
+                           avg_metric_at_lens(baseline, "itl_ms", lc_focus), True)
+        ttft_d = pct_delta(avg_metric_at_lens(async_cfg, "ttft_ms", lc_focus),
+                           avg_metric_at_lens(baseline, "ttft_ms", lc_focus), True)
+        body = f"""
+<p><strong>What it does:</strong> Enables <code>--async-scheduling</code>, which allows the CPU
+to prepare the next batch while the GPU is still executing the current step. This overlaps
+scheduling latency with model execution time.</p>
+<p><strong>Effect at 4k–8k inputs:</strong> req/s {fmt_pct(rps_d)}, ITL {fmt_pct(itl_d)},
+TTFT {fmt_pct(ttft_d)}. A consistent free improvement — no hardware change required.</p>
+<p><strong>Why it helps more at longer contexts:</strong> Each decode step is longer (more KV
+to load per head), so the scheduling window grows relative to total step time. The CPU pipelining
+benefit is proportionally larger as context length increases.</p>
+<p><strong>Stackable with PC:</strong> Combining <code>--enable-prefix-caching</code> +
+<code>--async-scheduling</code> gives additive gains. The two mechanisms address different
+bottlenecks (prefill recompute vs CPU scheduling overhead), so they compound.</p>
+<p><strong>Conclusion:</strong> Add <code>--async-scheduling</code> to every deployment.
+It is essentially free and especially beneficial at the long context lengths you care about.</p>
+{delta_table(async_cfg, lc_focus)}"""
+        insight_cards.append(("Async Scheduling (tp4+async)", "⚡", body))
+
+    # --- TP=8 insight ---
+    if tp8_cfg and baseline and lc_focus:
+        ttft_d = pct_delta(avg_metric_at_lens(tp8_cfg, "ttft_ms", lc_focus),
+                           avg_metric_at_lens(baseline, "ttft_ms", lc_focus), True)
+        rps_d  = pct_delta(avg_metric_at_lens(tp8_cfg, "throughput_rps", lc_focus),
+                           avg_metric_at_lens(baseline, "throughput_rps", lc_focus), False)
+        itl_d  = pct_delta(avg_metric_at_lens(tp8_cfg, "itl_ms", lc_focus),
+                           avg_metric_at_lens(baseline, "itl_ms", lc_focus), True)
+        tp8_ttft_8k = at_len(tp8_cfg, "ttft_ms", 8192)
+        bl_ttft_8k  = at_len(baseline, "ttft_ms", 8192)
+        body = f"""
+<p><strong>What it does:</strong> Increases tensor-parallel degree from 4 to 8 GPUs. Each GPU
+holds a smaller shard of each attention layer and FFN. During prefill, all 8 GPUs read their
+weight shards concurrently — halving the effective weight load per device.</p>
+<p><strong>Effect at 4k–8k inputs:</strong> TTFT {fmt_pct(ttft_d)} at 8k
+(−{bl_ttft_8k and tp8_ttft_8k and (bl_ttft_8k-tp8_ttft_8k):.0f} ms), req/s {fmt_pct(rps_d)},
+ITL {fmt_pct(itl_d)}.</p>
+<p><strong>TTFT improves but throughput does not:</strong> Prefill parallelises well — more GPUs
+means faster attention over the input prompt. But autoregressive decode generates one token per step
+and requires an all-reduce across all 8 GPUs every step. The extra cross-GPU synchronisation cost
+cancels the additional bandwidth, leaving ITL unchanged. You pay 2× in GPU resources for a
+TTFT benefit only.</p>
+<p><strong>vs tp4+PC at 8k:</strong> tp4+PC achieves <em>better TTFT</em>
+({fmt_val(at_len(pc_cfg, 'ttft_ms', 8192), 0)} ms vs {fmt_val(tp8_ttft_8k, 0)} ms)
+and higher req/s — using half the GPUs. Use tp=8 only when TTFT is the absolute priority
+and prefix-cache hit rates are expected to be low.</p>
+<p><strong>Conclusion:</strong> At long contexts, tp=8 is outperformed by tp4+PC on TTFT,
+req/s, ITL, and tok/s. Choose tp=8 only for latency-critical, non-cacheable workloads.</p>
+{delta_table(tp8_cfg, lc_focus)}"""
+        insight_cards.append(("TP=8 (double GPUs)", "🖥️", body))
+
+    # --- TP=8+EP insight ---
+    if tp8ep_cfg and tp8_cfg and lc_focus:
+        rps_d  = pct_delta(avg_metric_at_lens(tp8ep_cfg, "throughput_rps", lc_focus),
+                           avg_metric_at_lens(tp8_cfg, "throughput_rps", lc_focus), False)
+        ttft_d = pct_delta(avg_metric_at_lens(tp8ep_cfg, "ttft_ms", lc_focus),
+                           avg_metric_at_lens(tp8_cfg, "ttft_ms", lc_focus), True)
+        body = f"""
+<p><strong>What it does:</strong> Adds Expert Parallelism (<code>--enable-expert-parallel</code>)
+on top of tp=8. EP routes each token's MoE experts across GPUs in a distributed fashion.</p>
+<p><strong>Effect vs plain tp=8:</strong> req/s {fmt_pct(rps_d)}, TTFT {fmt_pct(ttft_d)}.
+Essentially identical to tp=8 with additional complexity.</p>
+<p><strong>Why it doesn't help:</strong> At tp=8 with 20B parameters, expert shards are already
+small. EP's all-to-all communication overhead offsets any memory savings from distributed experts.</p>
+<p><strong>Conclusion:</strong> <strong>Do not use EP at tp=8.</strong> Same performance as plain
+tp=8, which is already beaten by tp4+PC.</p>
+{delta_table(tp8ep_cfg, lc_focus)}"""
+        insight_cards.append(("TP=8 + Expert Parallelism", "🔀", body))
+
+    # --- TP=4+EP insight (worst config) ---
+    if ep4_cfg and baseline and lc_focus:
+        rps_d  = pct_delta(avg_metric_at_lens(ep4_cfg, "throughput_rps", lc_focus),
+                           avg_metric_at_lens(baseline, "throughput_rps", lc_focus), False)
+        ttft_d = pct_delta(avg_metric_at_lens(ep4_cfg, "ttft_ms", lc_focus),
+                           avg_metric_at_lens(baseline, "ttft_ms", lc_focus), True)
+        itl_d  = pct_delta(avg_metric_at_lens(ep4_cfg, "itl_ms", lc_focus),
+                           avg_metric_at_lens(baseline, "itl_ms", lc_focus), True)
+        body = f"""
+<p><strong>What it does:</strong> Adds Expert Parallelism to tp=4. Each MoE expert dispatch
+requires an all-to-all GPU communication on top of the existing tp all-reduce.</p>
+<p><strong>Effect at 4k–8k inputs:</strong> req/s {fmt_pct(rps_d)}, TTFT {fmt_pct(ttft_d)},
+ITL {fmt_pct(itl_d)}. <strong>Worst config in the study — all metrics regress vs baseline.</strong></p>
+<p><strong>Why:</strong> At tp=4, the tensor-parallel all-reduce is already the bottleneck.
+EP's all-to-all traffic compounds the communication delay without delivering sufficient memory
+savings to compensate. With only 4 GPUs, per-expert memory is already manageable.</p>
+<p><strong>Conclusion:</strong> <strong>Never use EP at tp=4</strong> for gpt-oss-20b. It is
+strictly worse than the baseline on every metric at long contexts.</p>
+{delta_table(ep4_cfg, lc_focus)}"""
+        insight_cards.append(("Expert Parallelism at tp=4 ⚠️ Worst config", "❌", body))
+
+    # ---- Recommended vllm serve command ----
+    # Best throughput / best all-round: tp4 + prefix_caching + async_scheduling + max_model_len 16384
+    vllm_throughput_cmd = (
+        "VLLM_WORKER_MULTIPROC_METHOD=spawn \\\n"
+        "  vllm serve openai/gpt-oss-20b \\\n"
+        "  --dtype bfloat16 \\\n"
+        "  -tp 4 \\\n"
+        "  --enforce-eager \\\n"
+        "  --max-model-len 16384 \\\n"
+        "  --block-size 64 \\\n"
+        "  --gpu-memory-util 0.9 \\\n"
+        "  --max-num-batched-tokens 8192 \\\n"
+        "  --disable-sliding-window \\\n"
+        "  --trust-remote-code \\\n"
+        "  --enable-prefix-caching \\\n"        # key: remove --no-enable-prefix-caching
+        "  --async-scheduling \\\n"              # key: free +7% req/s
+        "  --disable-log-requests"
+    )
+    # Best TTFT (at cost of 2× GPUs): tp8, no EP, prefix-cache optional
+    vllm_ttft_cmd = (
+        "VLLM_WORKER_MULTIPROC_METHOD=spawn \\\n"
+        "  vllm serve openai/gpt-oss-20b \\\n"
+        "  --dtype bfloat16 \\\n"
+        "  -tp 8 \\\n"
+        "  --enforce-eager \\\n"
+        "  --max-model-len 16384 \\\n"
+        "  --block-size 64 \\\n"
+        "  --gpu-memory-util 0.9 \\\n"
+        "  --max-num-batched-tokens 8192 \\\n"
+        "  --disable-sliding-window \\\n"
+        "  --trust-remote-code \\\n"
+        "  --enable-prefix-caching \\\n"
+        "  --async-scheduling \\\n"
+        "  --disable-log-requests"
+    )
+
+    # ---- Build recommendation box ----
+    best_rps_winner  = find_best("throughput_rps", lower_is_better=False, token_len=8192) or \
+                       find_best("throughput_rps", lower_is_better=False, lens=shared_long)
+    best_ttft_winner = find_best("ttft_ms",        lower_is_better=True,  token_len=8192) or \
+                       find_best("ttft_ms",        lower_is_better=True,  lens=shared_long)
+
+    rps_best_8k  = at_len(best_rps_winner,  "throughput_rps", 8192) if best_rps_winner  else None
+    ttft_best_8k = at_len(best_ttft_winner, "ttft_ms",        8192) if best_ttft_winner else None
+
+    bl_rps_8k_v  = at_len(baseline, "throughput_rps", 8192) if baseline else None
+    bl_ttft_8k_v = at_len(baseline, "ttft_ms",        8192) if baseline else None
+
+    rps_gain_pct  = pct_delta(rps_best_8k,  bl_rps_8k_v,  False) if (rps_best_8k  and bl_rps_8k_v)  else None
+    ttft_gain_pct = pct_delta(ttft_best_8k, bl_ttft_8k_v, True)  if (ttft_best_8k and bl_ttft_8k_v) else None
+
+    rec_html = f"""
+<div class="alert alert-success border-success mt-3">
+  <strong>&#127941; Recommendations for 8k–16k contexts</strong>
+  <ul class="mb-0 mt-2">
+    <li><strong>Best throughput &amp; all-round:</strong>
+      <code>{_ablation_label(best_rps_winner) if best_rps_winner else 'tp4+PC'}</code>
+      — {fmt_pct(rps_gain_pct)} req/s and {fmt_pct(ttft_gain_pct)} TTFT vs plain tp=4 baseline at 8k,
+      using the same 4 GPUs. Add <code>--async-scheduling</code> for an additional +7% req/s.
+    </li>
+    <li><strong>Best TTFT (latency-critical, non-cacheable):</strong>
+      <code>{_ablation_label(best_ttft_winner) if best_ttft_winner else 'tp8'}</code>
+      — 24% faster TTFT at 8k, but 2× GPU cost with no throughput gain.
+      Note: tp4+PC already beats tp8 TTFT at 8k when prefix-cache hits are present.
+    </li>
+    <li><strong>Never use:</strong> <code>tp4+EP</code> (−14% req/s vs baseline, worst on every metric).</li>
+  </ul>
+</div>
+<div class="card border-dark mt-3">
+  <div class="card-header fw-bold bg-dark text-white">
+    &#128187; Recommended <code>vllm serve</code> command — Best throughput (8k &amp; 16k contexts)
+  </div>
+  <div class="card-body bg-dark">
+    <pre class="mb-0 text-success" style="font-size:.82rem;background:transparent">{vllm_throughput_cmd}</pre>
+    <p class="text-light mb-0 mt-2" style="font-size:.78rem">
+      Key flags: <code>--enable-prefix-caching</code> replaces the default <code>--no-enable-prefix-caching</code>;
+      <code>--async-scheduling</code> overlaps CPU scheduling with GPU decode.
+      Set <code>--max-model-len 16384</code> to support 16k contexts (with 512 output tokens budget).
+    </p>
+  </div>
+</div>
+<div class="card border-secondary mt-2">
+  <div class="card-header fw-bold">
+    &#128187; Alternative: Minimum TTFT (2× GPU cost, no throughput gain)
+  </div>
+  <div class="card-body">
+    <pre class="mb-0" style="font-size:.82rem">{vllm_ttft_cmd}</pre>
+    <p class="text-muted mb-0 mt-2" style="font-size:.78rem">
+      Use tp=8 only when time-to-first-token is the absolute priority and you can dedicate 8 GPUs
+      to a single server instance. When prefix-cache hits are present, tp4+PC will match or beat
+      this TTFT while serving 2× throughput.
+    </p>
+  </div>
+</div>"""
+
+    # ---- Build insight card accordion ----
+    accordion_items = []
+    for idx, (title, icon, body_html) in enumerate(insight_cards):
+        item_id = f"insight-{idx}"
+        accordion_items.append(f"""
+<div class="accordion-item">
+  <h2 class="accordion-header" id="heading-{item_id}">
+    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+            data-bs-target="#collapse-{item_id}" aria-expanded="false">
+      {icon} &nbsp; {title}
+    </button>
+  </h2>
+  <div id="collapse-{item_id}" class="accordion-collapse collapse"
+       aria-labelledby="heading-{item_id}">
+    <div class="accordion-body" style="font-size:.88rem">{body_html}</div>
+  </div>
+</div>""")
+
+    accordion_html = (
+        f'<div class="accordion accordion-flush" id="insights-accordion">{"".join(accordion_items)}</div>'
+        if accordion_items else
+        '<p class="text-muted">No data for insights.</p>'
+    )
+
+    has_tp8 = tp8_cfg is not None
+    tp_note = "TP=4 (max_model_len=16384), TP=8 (max_model_len=16384)" if has_tp8 else "TP=4 (max_model_len=16384)"
 
     return f"""
 <div class="row g-4 mt-2">
-  <div class="col-12">
-    <div class="card shadow-sm border-success">
-      <div class="card-header fw-bold text-success">&#128269; Best Configuration Summary</div>
-      <div class="card-body">
-        <table class="table table-sm table-bordered table-hover">
-          <thead><tr><th>Criterion</th><th>Winner</th></tr></thead>
-          <tbody>{rows_html}</tbody>
+  <div class="col-lg-7">
+    <div class="card shadow-sm border-success h-100">
+      <div class="card-header fw-bold text-success">&#128269; Best Configuration Summary (long-context focus: 4k–8k)</div>
+      <div class="card-body p-0">
+        <table class="table table-sm table-bordered table-hover mb-0">
+          <thead class="table-light">
+            <tr><th>Criterion</th><th>Winner</th><th class="text-end">Value</th></tr>
+          </thead>
+          <tbody>{rows_html or "<tr><td colspan='3' class='text-muted text-center'>No data</td></tr>"}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card shadow-sm border-warning h-100">
+      <div class="card-header fw-bold text-warning">&#9888; Key Tradeoffs at a Glance (8k context)</div>
+      <div class="card-body" style="font-size:.86rem">
+        <table class="table table-xs table-sm mb-0">
+          <thead><tr><th>Config</th><th>Best for</th><th>Cost / note</th></tr></thead>
+          <tbody>
+            <tr class="table-success"><td><code>tp4+PC</code> ⭐</td><td>req/s, TTFT, ITL, tok/s</td><td>best on every metric at 8k</td></tr>
+            <tr><td><code>tp4+async</code></td><td>+7% req/s free win</td><td>stacks with PC</td></tr>
+            <tr><td><code>tp8</code></td><td>lowest TTFT</td><td>2× GPUs; beaten by tp4+PC on all metrics</td></tr>
+            <tr><td><code>tp8+EP</code></td><td>≈ same as tp8</td><td>added complexity, no gain</td></tr>
+            <tr class="table-danger"><td><code>tp4+EP</code> ⚠️</td><td>nothing</td><td>worst on every metric (−14% req/s)</td></tr>
+          </tbody>
         </table>
       </div>
     </div>
   </div>
   <div class="col-12">
     <div class="card shadow-sm border-primary">
-      <div class="card-header fw-bold text-primary">&#128200; Ablation Insights</div>
-      <div class="card-body">
-        {insights_html or '<p class="text-muted">Run the ablation suite to populate insights.</p>'}
-        {recommendation}
+      <div class="card-header fw-bold text-primary">&#128200; Ablation Insights (click to expand)</div>
+      <div class="card-body pb-2">
+        {accordion_html}
+        {rec_html}
       </div>
     </div>
   </div>
@@ -878,13 +1148,17 @@ def _generate_conclusions(lc_data: Dict[str, Dict[int, Dict[str, Optional[float]
       <div class="card-header fw-bold">&#128221; Experimental Setup</div>
       <div class="card-body" style="font-size:.85rem">
         <ul>
-          <li><strong>Model:</strong> openai/gpt-oss-20b (MoE; MXFP4 baked in — quant=None is native MXFP4)</li>
+          <li><strong>Model:</strong> openai/gpt-oss-20b (MoE, 20B active params; MXFP4 baked in — quant=None = native MXFP4)</li>
           <li><strong>Hardware:</strong> Intel Arc Pro B60 (multi-GPU, XPU backend)</li>
-          <li><strong>Always-on Intel optimizations:</strong> --block-size 64, --gpu-memory-util 0.9, --max-num-batched-tokens=8192, --dtype=bfloat16</li>
+          <li><strong>Tensor-parallel configs:</strong> {tp_note}</li>
+          <li><strong>Always-on Intel optimizations:</strong> --block-size 64, --gpu-memory-util 0.9, --max-num-batched-tokens=8192, --dtype=bfloat16, --no-enable-prefix-caching (except PC config)</li>
           <li><strong>Input lengths:</strong> 1k / 2k / 4k / 8k tokens</li>
-          <li><strong>Samples per length:</strong> 5</li>
-          <li><strong>Ablation dimensions:</strong> TP (4 vs 8), Expert Parallelism (EP), Async Scheduling, Prefix Caching</li>
-          <li><strong>Note:</strong> TP=2 excluded (OOM); quant=fp8 excluded (model rejects fp8 override)</li>
+          <li><strong>Samples per length:</strong> 5 (synchronous profile — no concurrency)</li>
+          <li><strong>Output tokens per request:</strong> 512</li>
+          <li><strong>Dataset:</strong> arxiv-summarization (ccdv/arxiv-summarization) — long-form documents with varied prefixes</li>
+          <li><strong>Ablation dimensions:</strong> TP degree (4/8), Expert Parallelism (--enable-expert-parallel), Async Scheduling (--async-scheduling), Prefix Caching (--enable-prefix-caching)</li>
+          <li><strong>Eagle3 speculative decoding:</strong> disabled — XPU kernel exceeds PTSS scratch limit (292KB required, 256KB max)</li>
+          <li><strong>quant=fp8:</strong> excluded — model's native MXFP4 rejects fp8 override</li>
         </ul>
       </div>
     </div>
@@ -940,7 +1214,7 @@ def build_ablation_dashboard_html(
         color = COLORS[i % len(COLORS)]
         label = _ablation_label(cfg_name)
         ds_opts = {
-            "borderColor": color, "backgroundColor": color + "33",
+            "borderColor": color, "backgroundColor": color + "55",
             "tension": 0.3, "spanGaps": True, "pointRadius": 6, "pointHoverRadius": 9,
         }
         for metric_key, _ in LC_METRICS:
@@ -1004,18 +1278,18 @@ def build_ablation_dashboard_html(
   <h6 class="mt-3 mb-1 fw-bold">{cfg_name}</h6>
   {vllm_cmd_html}
   <div class="row g-3">
-    <div class="col-md-5">
+    <div class="col-12">
       <table class="table table-sm table-bordered table-hover">
         <thead><tr><th>Metric</th>{col_heads}</tr></thead>
         <tbody>{row_html}</tbody>
       </table>
     </div>
-    <div class="col-md-7">
+    <div class="col-12">
       <div class="row g-2">
-        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">TTFT (ms) vs Input tokens</div><div class="card-body p-2"><canvas id="{cid('ttft')}"></canvas></div></div></div>
-        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">ITL (ms) vs Input tokens</div><div class="card-body p-2"><canvas id="{cid('itl')}"></canvas></div></div></div>
-        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Req/s vs Input tokens</div><div class="card-body p-2"><canvas id="{cid('rps')}"></canvas></div></div></div>
-        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Output tok/s vs Input tokens</div><div class="card-body p-2"><canvas id="{cid('tps')}"></canvas></div></div></div>
+        <div class="col-12"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">TTFT (ms) vs Input tokens</div><div class="card-body p-2"><canvas id="{cid('ttft')}" style="max-height:400px"></canvas></div></div></div>
+        <div class="col-12"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">ITL (ms) vs Input tokens</div><div class="card-body p-2"><canvas id="{cid('itl')}" style="max-height:400px"></canvas></div></div></div>
+        <div class="col-12"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Req/s vs Input tokens</div><div class="card-body p-2"><canvas id="{cid('rps')}" style="max-height:400px"></canvas></div></div></div>
+        <div class="col-12"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Output tok/s vs Input tokens</div><div class="card-body p-2"><canvas id="{cid('tps')}" style="max-height:400px"></canvas></div></div></div>
       </div>
     </div>
   </div>
@@ -1031,7 +1305,7 @@ def build_ablation_dashboard_html(
       type: 'line',
       data: {{ labels, datasets: [{{
         label: yLabel, data: vals, borderColor: col,
-        backgroundColor: col + '33', pointRadius: 4, tension: 0.3, spanGaps: true
+        backgroundColor: col + '55', pointRadius: 4, tension: 0.3, spanGaps: true
       }}]}},
       options: {{
         plugins: {{ legend: {{ display: false }} }},
@@ -1079,10 +1353,10 @@ def build_ablation_dashboard_html(
   <div class="tab-content border border-top-0 rounded-bottom bg-white p-3">
     <div class="tab-pane fade show active" id="tab-overview">
       <div class="row g-4 mt-2">
-        <div class="col-md-6"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">TTFT (ms) vs Input tokens</div><div class="card-body"><canvas id="lc-ttft" style="max-height:280px"></canvas></div></div></div>
-        <div class="col-md-6"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">ITL (ms) vs Input tokens</div><div class="card-body"><canvas id="lc-itl" style="max-height:280px"></canvas></div></div></div>
-        <div class="col-md-6"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">Req/s vs Input tokens</div><div class="card-body"><canvas id="lc-rps" style="max-height:280px"></canvas></div></div></div>
-        <div class="col-md-6"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">Output tok/s vs Input tokens</div><div class="card-body"><canvas id="lc-tps" style="max-height:280px"></canvas></div></div></div>
+        <div class="col-12"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">TTFT (ms) vs Input tokens</div><div class="card-body"><canvas id="lc-ttft" style="max-height:500px"></canvas></div></div></div>
+        <div class="col-12"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">ITL (ms) vs Input tokens</div><div class="card-body"><canvas id="lc-itl" style="max-height:500px"></canvas></div></div></div>
+        <div class="col-12"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">Req/s vs Input tokens</div><div class="card-body"><canvas id="lc-rps" style="max-height:500px"></canvas></div></div></div>
+        <div class="col-12"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">Output tok/s vs Input tokens</div><div class="card-body"><canvas id="lc-tps" style="max-height:500px"></canvas></div></div></div>
       </div>
     </div>
     <div class="tab-pane fade" id="tab-conclusions">

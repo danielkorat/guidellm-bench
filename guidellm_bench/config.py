@@ -25,7 +25,7 @@ def is_moe_model(model: str) -> bool:
 
 # Eagle3 speculative decoding config for gpt-oss-120b.
 # Draft model always runs at draft_tensor_parallel_size=1 (Eagle3 constraint).
-EAGLE3_cFIG = (
+EAGLE3_SPECULATIVE_CONFIG = (
     '{"model": "nvidia/gpt-oss-120b-Eagle3", "num_speculative_tokens": 5,'
     ' "method": "eagle3", "draft_tensor_parallel_size": 1}'
 )
@@ -125,11 +125,12 @@ def get_ablation_configs() -> list:
         Config(model="openai/gpt-oss-20b", tp=2, quant=None, eager=True,
                max_model_len_override=8192),
 
-        # 8. Eagle3 speculative decoding (tp=4): draft model predicts 3 tokens ahead,
-        #    reducing TTFT and ITL on autoregressive generation.
-        #    Draft model: RedHatAI/gpt-oss-20b-speculator.eagle3 (0.9B params)
-        Config(model="openai/gpt-oss-20b", tp=4, quant=None, eager=True,
-               speculative_config=EAGLE3_20B_SPECULATIVE_CONFIG),
+        # 8. Eagle3 speculative decoding (tp=4): DISABLED — XPU hardware limit
+        #    sample_recovered_tokens_kernel requires 292KB PTSS; XPU max is 256KB.
+        #    ZE_RESULT_ERROR_MODULE_BUILD_FAILURE on intel/llm-scaler-vllm:0.14.0-b8.
+        #    Kept commented out for reference; do not re-enable without driver upgrade.
+        # Config(model="openai/gpt-oss-20b", tp=4, quant=None, eager=True,
+        #        speculative_config=EAGLE3_20B_SPECULATIVE_CONFIG),
     ]
 
 
