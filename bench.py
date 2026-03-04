@@ -68,7 +68,7 @@ if not os.path.exists("/.dockerenv"):
 # ---------------------------------------------------------------------------
 import argparse
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -132,7 +132,7 @@ def _israel_now() -> datetime:
         return datetime.now(ZoneInfo("Asia/Jerusalem"))
     except Exception:
         # tzdata missing — use fixed UTC+2 as a safe fallback
-        from datetime import timezone, timedelta
+        from datetime import timezone
         il_tz = timezone(timedelta(hours=2))
         print(
             "  WARNING: ZoneInfo('Asia/Jerusalem') unavailable — "
@@ -140,6 +140,16 @@ def _israel_now() -> datetime:
             flush=True,
         )
         return datetime.now(il_tz)
+
+
+def _fmt_dur(seconds: float) -> str:
+    """Format a duration in seconds as H:MM:SS (or MM:SS when < 1 hour)."""
+    s = int(seconds)
+    m, s = divmod(s, 60)
+    h, m = divmod(m, 60)
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
 
 
 # Module-level reference so the SIGTERM/SIGINT handler can call stop_server()
@@ -668,14 +678,12 @@ def _run_ablation(
             cache_dir=out_dir / "datasets",
         )
 
-    # Build ablation config matrix, applying skip rules
-    ablation_cfgs: list[Config] = []
-    for c in get_ablation_configs():
-        reason = skip_reason(c.model, c.quant, c.eager, c.tp)
-        if reason:
-            print(f"  SKIP  {c.name}: {reason}")
-        else:
-            ablation_cfgs.append(c)
+    # Build ablation config matrix.
+    # Ablation configs are manually curated — skip_reason() is NOT applied.
+    # tp=2 is deliberately included (with a reduced max_model_len_override=8192)
+    # to test whether the blog's tp=1 result is reproducible at tp=2 on 0.14.0-b8.
+    # Eagle3 is included with a speculative decoding config.
+    ablation_cfgs: list[Config] = list(get_ablation_configs())
 
     n_runs = len(ablation_cfgs) * len(lc_datasets)
     print(
@@ -687,20 +695,42 @@ def _run_ablation(
     current_server_proc = None
     succeeded: list[str] = []
     failed: list[tuple[str, str]] = []
+    run_start = time.time()
 
     for i, cfg in enumerate(ablation_cfgs, 1):
+        # ── Overall progress banner (shown before every config except the first) ──
+        if i > 1:
+            _e = time.time() - run_start
+            _avg = _e / (i - 1)
+            _rem = _avg * (len(ablation_cfgs) - (i - 1))
+            _eta = _israel_now() + timedelta(seconds=_rem)
+            _pct = (i - 1) / len(ablation_cfgs) * 100
+            print(
+                f"\n  ── {i-1}/{len(ablation_cfgs)} done ({_pct:.0f}%)  "
+                f"|  {_fmt_dur(_e)} elapsed  "
+                f"|  ~{_fmt_dur(_rem)} remaining  "
+                f"|  ETA {_eta.strftime('%H:%M')} Israel ──",
+                flush=True,
+            )
         print(f"\n{'='*60}")
         print(f"[{i}/{len(ablation_cfgs)}]  {cfg.name}")
         print(f"{'='*60}")
 
+        # Per-config effective max_model_len:
+        # tp=2 declares max_model_len_override=8192 to fit within 2-GPU memory budget.
+        # All other configs use the global ablation default (16384).
+        effective_max_model_len = cfg.max_model_len_override or max_model_len
+        if cfg.max_model_len_override:
+            print(f"  Using max_model_len={effective_max_model_len} (per-config override for tp={cfg.tp})", flush=True)
+
         _server_log = log_dir / f"{cfg.name}_server.log"
-        if server_is_reusable(cfg, max_model_len):
+        if server_is_reusable(cfg, effective_max_model_len):
             print("  Reusing running server (config matches, server is healthy)", flush=True)
         else:
             stop_server(current_server_proc)
             current_server_proc = None
             _current_server_proc = None
-            proc = start_server(cfg, max_model_len, _server_log)
+            proc = start_server(cfg, effective_max_model_len, _server_log)
             _current_server_proc = proc
             try:
                 ready = wait_for_server(timeout_startup, log_path=_server_log, proc=proc)
@@ -714,7 +744,7 @@ def _run_ablation(
                 _current_server_proc = None
                 failed.append((cfg.name, "server startup failed"))
                 continue
-            write_server_status(cfg, max_model_len, proc.pid, _server_log)
+            write_server_status(cfg, effective_max_model_len, proc.pid, _server_log)
             current_server_proc = proc
             _current_server_proc = proc
 
@@ -733,6 +763,11 @@ def _run_ablation(
             if lc_path is None:
                 continue
             lc_label = f"{token_len // 1024}k" if token_len >= 1024 else str(token_len)
+            # Skip LC lengths that cannot fit within this config's context window.
+            # Guard: input_tokens + output_tokens must not exceed max_model_len.
+            if token_len + 512 > effective_max_model_len:
+                print(f"    SKIP lc{lc_label}: {token_len} + 512 output > max_model_len={effective_max_model_len}", flush=True)
+                continue
             lc_name = f"{cfg.name}_lc{lc_label}"
             lc_checkpoint = out_dir / f"{lc_name}_benchmarks.json"
             if resume is not None and lc_checkpoint.exists():
@@ -762,6 +797,28 @@ def _run_ablation(
             succeeded.append(cfg.name)
         else:
             failed.append((cfg.name, "all LC slices failed"))
+        # ── Post-config progress line ────────────────────────────────────────────
+        _done = i
+        _te = time.time() - run_start
+        _rem_cfgs = len(ablation_cfgs) - _done
+        _pct2 = _done / len(ablation_cfgs) * 100
+        _sym = "✓" if any_lc_success else "✗"
+        if _rem_cfgs > 0:
+            _avg2 = _te / _done
+            _rem2 = _avg2 * _rem_cfgs
+            _eta2 = _israel_now() + timedelta(seconds=_rem2)
+            print(
+                f"\n  {_sym} [{_done}/{len(ablation_cfgs)}] {cfg.name}  "
+                f"|  {_pct2:.0f}% done  |  {_fmt_dur(_te)} elapsed  "
+                f"|  ~{_fmt_dur(_rem2)} remaining  |  ETA {_eta2.strftime('%H:%M')} Israel",
+                flush=True,
+            )
+        else:
+            print(
+                f"\n  {_sym} [{_done}/{len(ablation_cfgs)}] {cfg.name}  "
+                f"|  100% done  |  {_fmt_dur(_te)} total",
+                flush=True,
+            )
 
     # Summary
     print(f"\n{'='*60}")

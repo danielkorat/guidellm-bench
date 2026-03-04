@@ -25,8 +25,16 @@ def is_moe_model(model: str) -> bool:
 
 # Eagle3 speculative decoding config for gpt-oss-120b.
 # Draft model always runs at draft_tensor_parallel_size=1 (Eagle3 constraint).
-EAGLE3_SPECULATIVE_CONFIG = (
+EAGLE3_cFIG = (
     '{"model": "nvidia/gpt-oss-120b-Eagle3", "num_speculative_tokens": 5,'
+    ' "method": "eagle3", "draft_tensor_parallel_size": 1}'
+)
+
+# Eagle3 speculative decoding config for gpt-oss-20b.
+# Model: RedHatAI/gpt-oss-20b-speculator.eagle3
+# num_speculative_tokens=3 per model card (not 5 — smaller draft model).
+EAGLE3_20B_SPECULATIVE_CONFIG = (
+    '{"model": "RedHatAI/gpt-oss-20b-speculator.eagle3", "num_speculative_tokens": 3,'
     ' "method": "eagle3", "draft_tensor_parallel_size": 1}'
 )
 
@@ -109,6 +117,19 @@ def get_ablation_configs() -> list:
         # 6. Prefix caching enabled: test whether KV-cache reuse helps LC TTFT
         #    Default is disabled (--no-enable-prefix-caching); this removes that flag
         Config(model="openai/gpt-oss-20b", tp=4, quant=None, eager=True, prefix_caching=True),
+
+        # 7. TP=2 with reduced max_model_len=8192: test whether the blog's tp=1 result
+        #    (vllm 0.10.2-xpu) can be reproduced at tp=2 with a smaller context window.
+        #    LC runs capped at 4k input (4096 + 512 output = 4608 < 8192).
+        #    Uses max_model_len_override=8192 to stay within 2-GPU memory budget.
+        Config(model="openai/gpt-oss-20b", tp=2, quant=None, eager=True,
+               max_model_len_override=8192),
+
+        # 8. Eagle3 speculative decoding (tp=4): draft model predicts 3 tokens ahead,
+        #    reducing TTFT and ITL on autoregressive generation.
+        #    Draft model: RedHatAI/gpt-oss-20b-speculator.eagle3 (0.9B params)
+        Config(model="openai/gpt-oss-20b", tp=4, quant=None, eager=True,
+               speculative_config=EAGLE3_20B_SPECULATIVE_CONFIG),
     ]
 
 
@@ -131,6 +152,7 @@ class Config:
     expert_parallel_size: Optional[int] = None     # --expert-parallel-size N (MoE EP)
     async_scheduling: bool = False                  # --async-scheduling (Intel XPU optimisation)
     prefix_caching: bool = False                    # enable prefix caching (default: off via --no-enable-prefix-caching)
+    max_model_len_override: Optional[int] = None   # per-config --max-model-len override (ablation only; e.g. tp=2 needs smaller value)
 
     @property
     def name(self) -> str:

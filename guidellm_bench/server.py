@@ -199,8 +199,18 @@ def build_vllm_cmd(cfg: Config, max_model_len: int) -> str:
 
 
 def start_server(cfg: Config, max_model_len: int, log_path: Path) -> subprocess.Popen:
-    """Start the vLLM server (runs directly inside the container)."""
+    """Start the vLLM server (runs directly inside the container).
+
+    Also persists the full ``vllm serve …`` command to
+    ``{log_path.parent}/{cfg.name}_vllm_cmd.txt`` so dashboards can display it.
+    """
     vllm_cmd = build_vllm_cmd(cfg, max_model_len)
+    # Write the command for later dashboard display (docker image + full flags)
+    try:
+        cmd_path = log_path.parent / f"{cfg.name}_vllm_cmd.txt"
+        cmd_path.write_text(vllm_cmd + "\n")
+    except OSError:
+        pass
     return _run_tee(
         ["bash", "--login", "-c", f"{_PREAMBLE} && {vllm_cmd}"],
         log_path,

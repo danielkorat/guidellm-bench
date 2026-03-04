@@ -6,6 +6,25 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict
 
+try:
+    from .docker import DOCKER_IMAGE
+except ImportError:
+    DOCKER_IMAGE = "intel/llm-scaler-vllm:0.14.0-b8"
+
+
+def _load_vllm_cmd(out_dir: Path, cfg_name: str) -> Optional[str]:
+    """Return the saved ``vllm serve …`` command string for *cfg_name*, or None.
+
+    Written to ``{out_dir}/logs/{cfg_name}_vllm_cmd.txt`` by start_server().
+    """
+    cmd_path = out_dir / "logs" / f"{cfg_name}_vllm_cmd.txt"
+    if cmd_path.exists():
+        try:
+            return cmd_path.read_text().strip()
+        except OSError:
+            pass
+    return None
+
 
 FIXED_TITLE = "Benchmark Dashboard \u2014 Intel Arc Pro B60 (multi-gpu)"
 
@@ -442,8 +461,19 @@ def build_dashboard_html(
             f'<a class="nav-link" data-bs-toggle="tab" href="#{tab_id}">{short}</a>'
             f'</li>\n'
         )
+        vllm_cmd = _load_vllm_cmd(out_dir, rec["name"])
+        vllm_cmd_html = (
+            f'<p class="text-muted mb-2" style="font-size:.72rem;word-break:break-all">'
+            f'<strong>Docker:</strong> <code>{DOCKER_IMAGE}</code><br>'
+            f'<strong>vllm serve:</strong> <code>{vllm_cmd}</code></p>'
+        ) if vllm_cmd else (
+            f'<p class="text-muted mb-2" style="font-size:.72rem">'
+            f'<strong>Docker:</strong> <code>{DOCKER_IMAGE}</code></p>'
+        )
+
         config_tabs_content += f"""<div class="tab-pane fade" id="{tab_id}">
-  <h6 class="mt-3 mb-2 fw-bold">{rec["name"]}</h6>
+  <h6 class="mt-3 mb-1 fw-bold">{rec["name"]}</h6>
+  {vllm_cmd_html}
   <div class="row g-3">
     <div class="col-md-4">
       <table class="table table-sm table-bordered table-hover">
@@ -527,7 +557,7 @@ def build_dashboard_html(
     subtitle = _build_subtitle(records)
     subtitle_html = (
         f'<p class="text-center text-muted mb-1" style="font-size:.82rem">'
-        f'{ts}'
+        f'Docker: <code>{DOCKER_IMAGE}</code> &nbsp;|&nbsp; {ts}'
         + (f' &nbsp;|&nbsp; {subtitle}' if subtitle else '')
         + '</p>'
     )
@@ -960,8 +990,19 @@ def build_ablation_dashboard_html(
             f'<a class="nav-link" data-bs-toggle="tab" href="#{tab_id}">{label}</a>'
             f'</li>\n'
         )
+        vllm_cmd = _load_vllm_cmd(out_dir, cfg_name)
+        vllm_cmd_html = (
+            f'<p class="text-muted mb-2" style="font-size:.72rem;word-break:break-all">'
+            f'<strong>Docker:</strong> <code>{DOCKER_IMAGE}</code><br>'
+            f'<strong>vllm serve:</strong> <code>{vllm_cmd}</code></p>'
+        ) if vllm_cmd else (
+            f'<p class="text-muted mb-2" style="font-size:.72rem">'
+            f'<strong>Docker:</strong> <code>{DOCKER_IMAGE}</code></p>'
+        )
+
         config_tabs_content += f"""<div class="tab-pane fade" id="{tab_id}">
-  <h6 class="mt-3 mb-2 fw-bold">{cfg_name}</h6>
+  <h6 class="mt-3 mb-1 fw-bold">{cfg_name}</h6>
+  {vllm_cmd_html}
   <div class="row g-3">
     <div class="col-md-5">
       <table class="table table-sm table-bordered table-hover">
@@ -1029,7 +1070,7 @@ def build_ablation_dashboard_html(
 <body>
 <div class="container-fluid py-3">
   <h4 class="mb-1 text-center fw-bold">{ABLATION_TITLE}</h4>
-  <p class="text-center text-muted mb-1" style="font-size:.82rem">{ts} &nbsp;|&nbsp; gpt-oss-20b &nbsp;|&nbsp; Intel Arc Pro B60 &nbsp;|&nbsp; {len(lc_data)} configurations</p>
+  <p class="text-center text-muted mb-1" style="font-size:.82rem">Docker: <code>{DOCKER_IMAGE}</code> &nbsp;|&nbsp; {ts} &nbsp;|&nbsp; gpt-oss-20b &nbsp;|&nbsp; Intel Arc Pro B60 &nbsp;|&nbsp; {len(lc_data)} configurations</p>
   <ul class="nav nav-tabs flex-wrap mb-0" id="mainTabs">
     <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-overview">&#128202; Overview</a></li>
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-conclusions">&#127919; Conclusions</a></li>
