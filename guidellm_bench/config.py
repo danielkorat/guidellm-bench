@@ -125,7 +125,17 @@ def get_ablation_configs() -> list:
         Config(model="openai/gpt-oss-20b", tp=2, quant=None, eager=True,
                max_model_len_override=8192),
 
-        # 8. Eagle3 speculative decoding (tp=4): DISABLED — XPU hardware limit
+        # 7. Combined best (tp=4): prefix caching + async scheduling
+        #    The recommended production command — stacks both free/cheap optimisations.
+        Config(model="openai/gpt-oss-20b", tp=4, quant=None, eager=True,
+               prefix_caching=True, async_scheduling=True),
+
+        # 8. Combined tp=8: tp=8 + prefix caching + async scheduling
+        #    Alternative for latency-critical deployments; 2× GPU cost.
+        Config(model="openai/gpt-oss-20b", tp=8, quant=None, eager=True,
+               prefix_caching=True, async_scheduling=True),
+
+        # 9. Eagle3 speculative decoding (tp=4): DISABLED — XPU hardware limit
         #    sample_recovered_tokens_kernel requires 292KB PTSS; XPU max is 256KB.
         #    ZE_RESULT_ERROR_MODULE_BUILD_FAILURE on intel/llm-scaler-vllm:0.14.0-b8.
         #    Kept commented out for reference; do not re-enable without driver upgrade.

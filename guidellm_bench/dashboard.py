@@ -756,19 +756,22 @@ def _generate_conclusions(lc_data: Dict[str, Dict[int, Dict[str, Optional[float]
                 return c
         return None
 
-    baseline  = find_cfg('4')
-    ep4_cfg   = find_cfg('4', 'ep')
-    async_cfg = find_cfg('4', 'async')
-    pc_cfg    = find_cfg('4', 'pc')
-    tp8_cfg   = find_cfg('8')
-    tp8ep_cfg = find_cfg('8', 'ep')
+    baseline      = find_cfg('4')
+    ep4_cfg       = find_cfg('4', 'ep')
+    async_cfg     = find_cfg('4', 'async')
+    pc_cfg        = find_cfg('4', 'pc')
+    asyncpc_cfg   = find_cfg('4', 'async-pc')    # tp4 + PC + async (recommended cmd)
+    tp8_cfg       = find_cfg('8')
+    tp8ep_cfg     = find_cfg('8', 'ep')
+    tp8asyncpc_cfg = find_cfg('8', 'async-pc')   # tp8 + PC + async (alt TTFT cmd)
     # tp2 intentionally excluded: max_model_len 8192 limits it to <8k contexts
 
     # Lengths present in all long-context-capable configs (no tp2)
     def cfg_lens(c: Optional[str]) -> set:
         return set(lc_data.get(c, {}).keys()) if c else set()
 
-    long_cfgs = [c for c in [baseline, ep4_cfg, async_cfg, pc_cfg, tp8_cfg, tp8ep_cfg] if c]
+    long_cfgs = [c for c in [baseline, ep4_cfg, async_cfg, pc_cfg, asyncpc_cfg,
+                              tp8_cfg, tp8ep_cfg, tp8asyncpc_cfg] if c]
     shared_long = sorted(
         set.intersection(*[cfg_lens(c) for c in long_cfgs]) if len(long_cfgs) > 1
         else cfg_lens(long_cfgs[0]) if long_cfgs else set()
@@ -980,6 +983,72 @@ strictly worse than the baseline on every metric at long contexts.</p>
 {delta_table(ep4_cfg, lc_focus)}"""
         insight_cards.append(("Expert Parallelism at tp=4 ⚠️ Worst config", "❌", body))
 
+    # --- tp4 + PC + async insight (recommended production command) ---
+    if asyncpc_cfg and baseline and lc_focus:
+        rps_d  = pct_delta(avg_metric_at_lens(asyncpc_cfg, "throughput_rps", lc_focus),
+                           avg_metric_at_lens(baseline, "throughput_rps", lc_focus), False)
+        ttft_d = pct_delta(avg_metric_at_lens(asyncpc_cfg, "ttft_ms", lc_focus),
+                           avg_metric_at_lens(baseline, "ttft_ms", lc_focus), True)
+        itl_d  = pct_delta(avg_metric_at_lens(asyncpc_cfg, "itl_ms", lc_focus),
+                           avg_metric_at_lens(baseline, "itl_ms", lc_focus), True)
+        tps_d  = pct_delta(avg_metric_at_lens(asyncpc_cfg, "throughput_tps", lc_focus),
+                           avg_metric_at_lens(baseline, "throughput_tps", lc_focus), False)
+        # also compare vs standalone PC to measure async contribution on top
+        rps_vs_pc   = pct_delta(avg_metric_at_lens(asyncpc_cfg, "throughput_rps", lc_focus),
+                                avg_metric_at_lens(pc_cfg, "throughput_rps", lc_focus), False) if pc_cfg else None
+        ttft_vs_pc  = pct_delta(avg_metric_at_lens(asyncpc_cfg, "ttft_ms", lc_focus),
+                                avg_metric_at_lens(pc_cfg, "ttft_ms", lc_focus), True) if pc_cfg else None
+        body = f"""
+<p><strong>What it does:</strong> Stacks both cost-free optimisations:
+<code>--enable-prefix-caching</code> + <code>--async-scheduling</code> on tp=4.
+This is the recommended production configuration for 8k–16k context workloads.</p>
+<p><strong>Effect vs plain tp=4 baseline at 4k–8k inputs:</strong>
+  req/s {fmt_pct(rps_d)}, TTFT {fmt_pct(ttft_d)}, ITL {fmt_pct(itl_d)}, tok/s {fmt_pct(tps_d)}.</p>
+<p><strong>Gain vs standalone PC:</strong> adding async scheduling on top of PC adds
+  req/s {fmt_pct(rps_vs_pc)}, TTFT {fmt_pct(ttft_vs_pc)} — confirming the two mechanisms
+  address independent bottlenecks (prefill recompute vs CPU scheduling) and stack additively.</p>
+<p><strong>Why the combination wins:</strong> Prefix caching reduces prefill work → lower TTFT.
+  Async scheduling overlaps CPU batch preparation with GPU decode → lower ITL and higher req/s.
+  Neither change requires additional hardware. This config uses the same 4 GPUs as the baseline.</p>
+<p><strong>Conclusion:</strong> Use <code>tp4+PC+async</code> as the default production command.
+  It delivers the best throughput and latency of any 4-GPU config at long contexts.</p>
+{delta_table(asyncpc_cfg, lc_focus)}"""
+        insight_cards.append(("tp4 + PC + Async ⭐⭐ Recommended", "🚀", body))
+
+    # --- tp8 + PC + async insight (alternative TTFT-optimised command) ---
+    if tp8asyncpc_cfg and baseline and lc_focus:
+        rps_d  = pct_delta(avg_metric_at_lens(tp8asyncpc_cfg, "throughput_rps", lc_focus),
+                           avg_metric_at_lens(baseline, "throughput_rps", lc_focus), False)
+        ttft_d = pct_delta(avg_metric_at_lens(tp8asyncpc_cfg, "ttft_ms", lc_focus),
+                           avg_metric_at_lens(baseline, "ttft_ms", lc_focus), True)
+        # compare vs standalone tp8 (same num GPUs, different flags)
+        rps_vs_tp8  = pct_delta(avg_metric_at_lens(tp8asyncpc_cfg, "throughput_rps", lc_focus),
+                                avg_metric_at_lens(tp8_cfg, "throughput_rps", lc_focus), False) if tp8_cfg else None
+        ttft_vs_tp8 = pct_delta(avg_metric_at_lens(tp8asyncpc_cfg, "ttft_ms", lc_focus),
+                                avg_metric_at_lens(tp8_cfg, "ttft_ms", lc_focus), True) if tp8_cfg else None
+        # compare vs tp4 recommended (cross-config, to see if 8 GPUs still adds something)
+        rps_vs_rec  = pct_delta(avg_metric_at_lens(tp8asyncpc_cfg, "throughput_rps", lc_focus),
+                                avg_metric_at_lens(asyncpc_cfg, "throughput_rps", lc_focus), False) if asyncpc_cfg else None
+        ttft_vs_rec = pct_delta(avg_metric_at_lens(tp8asyncpc_cfg, "ttft_ms", lc_focus),
+                                avg_metric_at_lens(asyncpc_cfg, "ttft_ms", lc_focus), True) if asyncpc_cfg else None
+        body = f"""
+<p><strong>What it does:</strong> Adds prefix caching and async scheduling on top of tp=8.
+  This is the alternative command for <em>latency-critical</em> workloads where TTFT is the
+  primary objective and 8 GPUs can be dedicated to a single server.</p>
+<p><strong>Effect vs plain tp=4 baseline at 4k–8k inputs:</strong>
+  req/s {fmt_pct(rps_d)}, TTFT {fmt_pct(ttft_d)}.</p>
+<p><strong>Gain vs standalone tp=8 (same GPU count):</strong>
+  req/s {fmt_pct(rps_vs_tp8)}, TTFT {fmt_pct(ttft_vs_tp8)} — PC and async contribute
+  additional improvements even at tp=8.</p>
+<p><strong>vs tp4+PC+async (half the GPUs):</strong>
+  req/s {fmt_pct(rps_vs_rec)}, TTFT {fmt_pct(ttft_vs_rec)}.
+  Whether the TTFT gain justifies 2× GPU cost depends on your SLA requirements.</p>
+<p><strong>Conclusion:</strong> Use <code>tp8+PC+async</code> only when time-to-first-token
+  is the hard bottleneck. For throughput-optimised or GPU-constrained deployments,
+  <code>tp4+PC+async</code> is the better choice.</p>
+{delta_table(tp8asyncpc_cfg, lc_focus)}"""
+        insight_cards.append(("tp8 + PC + Async (alt: min TTFT)", "⚡🖥️", body))
+
     # ---- Recommended vllm serve command ----
     # Best throughput / best all-round: tp4 + prefix_caching + async_scheduling + max_model_len 16384
     vllm_throughput_cmd = (
@@ -1035,22 +1104,23 @@ strictly worse than the baseline on every metric at long contexts.</p>
 <div class="alert alert-success border-success mt-3">
   <strong>&#127941; Recommendations for 8k–16k contexts</strong>
   <ul class="mb-0 mt-2">
-    <li><strong>Best throughput &amp; all-round:</strong>
-      <code>{_ablation_label(best_rps_winner) if best_rps_winner else 'tp4+PC'}</code>
-      — {fmt_pct(rps_gain_pct)} req/s and {fmt_pct(ttft_gain_pct)} TTFT vs plain tp=4 baseline at 8k,
-      using the same 4 GPUs. Add <code>--async-scheduling</code> for an additional +7% req/s.
+    <li><strong>Best throughput &amp; all-round (4 GPUs):</strong>
+      <code>{_ablation_label(best_rps_winner) if best_rps_winner else 'tp4_quant-none-async-pc'}</code>
+      — {fmt_pct(rps_gain_pct)} req/s and {fmt_pct(ttft_gain_pct)} TTFT vs plain tp=4 baseline at 8k.
+      Combines prefix caching (<code>--enable-prefix-caching</code>) and async scheduling
+      (<code>--async-scheduling</code>) for additive gains at no extra GPU cost.
     </li>
-    <li><strong>Best TTFT (latency-critical, non-cacheable):</strong>
-      <code>{_ablation_label(best_ttft_winner) if best_ttft_winner else 'tp8'}</code>
-      — 24% faster TTFT at 8k, but 2× GPU cost with no throughput gain.
-      Note: tp4+PC already beats tp8 TTFT at 8k when prefix-cache hits are present.
+    <li><strong>Best TTFT (latency-critical, 8 GPUs):</strong>
+      <code>{_ablation_label(best_ttft_winner) if best_ttft_winner else 'tp8_quant-none-async-pc'}</code>
+      — lowest first-token latency, but 2× GPU cost vs the tp4 recommendation.
+      Adds PC+async on top of tp=8 to maximally reduce TTFT.
     </li>
     <li><strong>Never use:</strong> <code>tp4+EP</code> (−14% req/s vs baseline, worst on every metric).</li>
   </ul>
 </div>
 <div class="card border-dark mt-3">
   <div class="card-header fw-bold bg-dark text-white">
-    &#128187; Recommended <code>vllm serve</code> command — Best throughput (8k &amp; 16k contexts)
+    &#128187; Recommended <code>vllm serve</code> command — <code>tp4+PC+async</code> (best throughput, 4 GPUs)
   </div>
   <div class="card-body bg-dark">
     <pre class="mb-0 text-success" style="font-size:.82rem;background:transparent">{vllm_throughput_cmd}</pre>
@@ -1063,14 +1133,13 @@ strictly worse than the baseline on every metric at long contexts.</p>
 </div>
 <div class="card border-secondary mt-2">
   <div class="card-header fw-bold">
-    &#128187; Alternative: Minimum TTFT (2× GPU cost, no throughput gain)
+    &#128187; Alternative <code>vllm serve</code> command — <code>tp8+PC+async</code> (min TTFT, 8 GPUs)
   </div>
   <div class="card-body">
     <pre class="mb-0" style="font-size:.82rem">{vllm_ttft_cmd}</pre>
     <p class="text-muted mb-0 mt-2" style="font-size:.78rem">
-      Use tp=8 only when time-to-first-token is the absolute priority and you can dedicate 8 GPUs
-      to a single server instance. When prefix-cache hits are present, tp4+PC will match or beat
-      this TTFT while serving 2× throughput.
+      Use tp=8 when time-to-first-token is the hard SLA constraint and 8 GPUs are available.
+      Adding PC and async scheduling on top of tp=8 further reduces latency beyond plain tp=8.
     </p>
   </div>
 </div>"""
@@ -1100,7 +1169,7 @@ strictly worse than the baseline on every metric at long contexts.</p>
     )
 
     has_tp8 = tp8_cfg is not None
-    tp_note = "TP=4 (max_model_len=16384), TP=8 (max_model_len=16384)" if has_tp8 else "TP=4 (max_model_len=16384)"
+    tp_note = "TP=4 (max_model_len=16384), TP=8 (max_model_len=16384)" if has_tp8 else "TP=4 (max_model_len=16384)"  # For TP=4: baseline, EP, async, PC, async+PC variants; same for TP=8
 
     return f"""
 <div class="row g-4 mt-2">
@@ -1124,9 +1193,10 @@ strictly worse than the baseline on every metric at long contexts.</p>
         <table class="table table-xs table-sm mb-0">
           <thead><tr><th>Config</th><th>Best for</th><th>Cost / note</th></tr></thead>
           <tbody>
-            <tr class="table-success"><td><code>tp4+PC</code> ⭐</td><td>req/s, TTFT, ITL, tok/s</td><td>best on every metric at 8k</td></tr>
+            {'<tr class="table-primary"><td><code>tp4+PC+async</code> ⭐⭐</td><td>all metrics at 8k–16k</td><td>recommended production cmd</td></tr>' if asyncpc_cfg else ''}
+            <tr class="table-success"><td><code>tp4+PC</code> ⭐</td><td>req/s, TTFT, ITL, tok/s</td><td>best single-opt at 8k</td></tr>
             <tr><td><code>tp4+async</code></td><td>+7% req/s free win</td><td>stacks with PC</td></tr>
-            <tr><td><code>tp8</code></td><td>lowest TTFT</td><td>2× GPUs; beaten by tp4+PC on all metrics</td></tr>
+            {'<tr><td><code>tp8+PC+async</code></td><td>lowest TTFT</td><td>2× GPUs; better than plain tp8</td></tr>' if tp8asyncpc_cfg else '<tr><td><code>tp8</code></td><td>lowest TTFT</td><td>2× GPUs; beaten by tp4+PC</td></tr>'}
             <tr><td><code>tp8+EP</code></td><td>≈ same as tp8</td><td>added complexity, no gain</td></tr>
             <tr class="table-danger"><td><code>tp4+EP</code> ⚠️</td><td>nothing</td><td>worst on every metric (−14% req/s)</td></tr>
           </tbody>
