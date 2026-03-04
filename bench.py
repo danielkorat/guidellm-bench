@@ -396,10 +396,10 @@ def main() -> None:
             if models and c.model not in models:
                 continue
             if not is_moe_model(c.model):
-                print(f"  SKIP  {c.model}  ep={c.expert_parallel_size}: EP requires MoE architecture")
+                print(f"  SKIP  {c.model}  ep: EP requires MoE architecture")
                 continue
             configs.append(c)
-            print(f"  +    {c.model}  tp={c.tp}  quant={c.quant or 'none'}  ep={c.expert_parallel_size}  (EP via {flag})")
+            print(f"  +    {c.model}  tp={c.tp}  quant={c.quant or 'none'}  ep  (EP via {flag})")
 
     # --ep-compare: also ensure the non-EP counterparts of EP variants are present in the matrix
     if args.ep_compare:

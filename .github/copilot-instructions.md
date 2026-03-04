@@ -238,6 +238,7 @@ Config(model="Qwen/Qwen3-30B-A3B", tp=4, quant="fp8", eager=True, expert_paralle
 The vLLM flag emitted is: `--enable-expert-parallel` (boolean — **no** `--expert-parallel-size` parameter exists in this build).
 EP is meaningful only for MoE models (gpt-oss-20b, Qwen3-30B-A3B): it distributes experts across GPUs, reducing per-expert memory and improving throughput.
 **Guard**: `is_moe_model(model)` (defined in `config.py`) must return True before any EP config is added. The ep_configs loop skips non-MoE models with a printed warning.
+**`Config.name` EP suffix**: `-ep` (no numeric value). `expert_parallel_size` is used as a boolean trigger only — the specific parallelism degree is implied by `tp`. Example: `Qwen_Qwen3-30B-A3B_tp4_quant-fp8-ep`.
 
 ### 13. Timestamped Output Directories (Israel Time)
 ```python
@@ -513,3 +514,4 @@ Mistakes that happened once and must not repeat:
 | 26 | `datetime.now(ZoneInfo("Asia/Jerusalem"))` silently falls back to UTC when `tzdata` is not installed, producing wrong directory timestamps. | Use `_israel_now()` which wraps in try/except and falls back to UTC+2 fixed offset. See Rule 26. |
 | 27 | Long-context output tokens set to 1024 when input is up to 16384 — causes context overflow on large inputs (prompt + max_tokens > max_model_len). | Use `output_tokens_count=512` for LC slices (half of 1024), giving headroom. See Rule 28. |
 | 28 | LC dataset cache stored globally in `/root/` — filename collision if two different source datasets happen to have the same stem. | Store LC JSONL files under `out_dir/datasets/` (per-run); include source stem in filename. |
+| 29 | `Config.name` used `-ep{N}` (e.g. `-ep4`, `-ep2`) — numeric EP value in filenames conflates TP and EP degrees and violates the "EP is boolean" principle. | `ep_suffix` in `Config.name` is just `-ep` (no number). `expert_parallel_size` is a boolean trigger; the degree is implied by `tp`. |

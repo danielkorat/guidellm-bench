@@ -1,13 +1,13 @@
 {
-  "model": "openai/gpt-oss-20b",
-  "tp": 4,
-  "quant": null,
+  "model": "Qwen/Qwen3-30B-A3B",
+  "tp": 2,
+  "quant": "fp8",
   "eager": true,
   "expert_parallel_size": null,
   "speculative_config": null,
   "max_model_len": 16384,
   "port": 8000,
-  "pid": 301,
-  "log_path": "results/20260303_2142/logs/openai_gpt-oss-20b_tp4_quant-none_server.log",
+  "pid": 16007,
+  "log_path": "/root/guidellm-bench/results/20260303_2203/logs/Qwen_Qwen3-30B-A3B_tp2_quant-fp8_server.log",
   "status": "ready"
 }

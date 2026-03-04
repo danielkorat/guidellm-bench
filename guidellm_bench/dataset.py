@@ -258,18 +258,25 @@ def prepare_long_context_datasets(
         out_path = cache_dir / f"lc_{src_stem}_{label}.jsonl"
 
         if out_path.exists():
-            print(f"  Long-context dataset lc_{label}: using cached {out_path}", flush=True)
-            results[tlen] = str(out_path)
-            continue
+            # Validate cached file has enough samples; discard if not.
+            with open(out_path) as _f:
+                cached_count = sum(1 for _ in _f)
+            if cached_count >= num_samples:
+                print(f"  Long-context dataset lc_{label}: using cached {out_path} ({cached_count} samples)", flush=True)
+                results[tlen] = str(out_path)
+                continue
+            else:
+                print(f"  Long-context dataset lc_{label}: cached file has only {cached_count}/{num_samples} samples — regenerating", flush=True)
+                out_path.unlink()
 
         # Filter and truncate
         min_words = int(tlen * _WORDS_PER_TOKEN * 0.5)  # at least 50% of target length
         eligible = [t for t in source_rows if len(t.split()) >= min_words]
 
-        if not eligible:
+        if len(eligible) < num_samples:
             print(
-                f"  WARNING: No prompts long enough for lc_{label} "
-                f"(need ≥{min_words} words, source has {len(source_rows)} rows) — skipping",
+                f"  WARNING: Not enough prompts for lc_{label} "
+                f"(need {num_samples}, found {len(eligible)} with ≥{min_words} words in {len(source_rows)} rows) — skipping",
                 flush=True,
             )
             results[tlen] = None

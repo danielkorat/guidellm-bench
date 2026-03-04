@@ -82,7 +82,7 @@ class Config:
         m = self.model.replace("/", "_")
         q = self.quant or "none"
         suffix = "-eagle3" if self.speculative_config else ""
-        ep_suffix = f"-ep{self.expert_parallel_size}" if self.expert_parallel_size else ""
+        ep_suffix = "-ep" if self.expert_parallel_size else ""
         return f"{m}_tp{self.tp}_quant-{q}{suffix}{ep_suffix}"
 
 
