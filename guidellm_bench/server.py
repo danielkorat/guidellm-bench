@@ -81,6 +81,8 @@ def _cfg_to_status_key(cfg: Config, max_model_len: int) -> dict:
         "eager": cfg.eager,
         "expert_parallel_size": cfg.expert_parallel_size,
         "speculative_config": cfg.speculative_config,
+        "async_scheduling": cfg.async_scheduling,
+        "prefix_caching": cfg.prefix_caching,
         "max_model_len": max_model_len,
         "port": PORT,
     }
@@ -170,7 +172,6 @@ def build_vllm_cmd(cfg: Config, max_model_len: int) -> str:
         f"--port {PORT}",
         "--block-size 64",
         "--gpu-memory-util 0.9",
-        "--no-enable-prefix-caching",
         "--trust-remote-code",
         "--disable-sliding-window",
         "--disable-log-requests",
@@ -178,6 +179,14 @@ def build_vllm_cmd(cfg: Config, max_model_len: int) -> str:
         f"--max-model-len {max_model_len}",
         f"-tp={cfg.tp}",
     ]
+    # Prefix caching: disabled by default per Intel XPU recommendation;
+    # enabled when cfg.prefix_caching=True (ablation variant).
+    if not cfg.prefix_caching:
+        parts.append("--no-enable-prefix-caching")
+    # Async scheduling: optional Intel 0.14.1-xpu feature that overlaps
+    # scheduling with model execution, reducing CPU overhead.
+    if cfg.async_scheduling:
+        parts.append("--async-scheduling")
     if cfg.eager:
         parts.append("--enforce-eager")
     if cfg.quant:

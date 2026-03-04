@@ -633,3 +633,449 @@ if ({json.dumps(has_lc_overview)}) {{
     print(f"\n  Dashboard → {out_path}", flush=True)
     write_serve_script(out_path)
     return out_path
+
+
+# ---------------------------------------------------------------------------
+# Ablation study dashboard builder
+# ---------------------------------------------------------------------------
+
+def _ablation_label(name: str) -> str:
+    """Return a compact human-readable label for an ablation config name."""
+    # Strip common prefix 'openai_gpt-oss-20b_'
+    label = re.sub(r'^openai_gpt-oss-20b_', '', name)
+    # Replace underscores with spaces for readability
+    return label
+
+
+def _generate_conclusions(lc_data: Dict[str, Dict[int, Dict[str, Optional[float]]]]) -> str:
+    """Auto-generate an HTML conclusions panel from ablation LC metric data.
+
+    Args:
+        lc_data: {cfg_name: {token_len: {metric_key: value}}}
+
+    Returns:
+        HTML string with insights and recommendations.
+    """
+    def avg_metric(cfg_name: str, metric: str) -> Optional[float]:
+        """Return mean value across all lengths, or None."""
+        vals = [
+            v
+            for metrics in lc_data.get(cfg_name, {}).values()
+            for k, v in metrics.items()
+            if k == metric and v is not None
+        ]
+        return sum(vals) / len(vals) if vals else None
+
+    def at_len(cfg_name: str, metric: str, length: int) -> Optional[float]:
+        return (lc_data.get(cfg_name, {}).get(length) or {}).get(metric)
+
+    all_cfgs = list(lc_data.keys())
+    if not all_cfgs:
+        return "<p class='text-muted'>No data available yet. Run the ablation suite first.</p>"
+
+    def find_best(metric: str, lower_is_better: bool, token_len: Optional[int] = None) -> Optional[str]:
+        """Return the config name with best metric value (at token_len or averaged)."""
+        scored = {}
+        for c in all_cfgs:
+            v = at_len(c, metric, token_len) if token_len else avg_metric(c, metric)
+            if v is not None:
+                scored[c] = v
+        if not scored:
+            return None
+        return min(scored, key=scored.__getitem__) if lower_is_better else max(scored, key=scored.__getitem__)
+
+    rows = []
+
+    # ---- Best TTFT ----
+    best_ttft_avg = find_best("ttft_ms", lower_is_better=True)
+    best_ttft_8k  = find_best("ttft_ms", lower_is_better=True, token_len=8192)
+    if best_ttft_avg:
+        rows.append(
+            f"<tr><td><strong>Best TTFT (avg across lengths)</strong></td>"
+            f"<td><code>{_ablation_label(best_ttft_avg)}</code></td></tr>"
+        )
+    if best_ttft_8k:
+        rows.append(
+            f"<tr><td><strong>Best TTFT at 8k tokens</strong></td>"
+            f"<td><code>{_ablation_label(best_ttft_8k)}</code></td></tr>"
+        )
+
+    # ---- Best throughput ----
+    best_tps_avg = find_best("throughput_tps", lower_is_better=False)
+    best_tps_8k  = find_best("throughput_tps", lower_is_better=False, token_len=8192)
+    if best_tps_avg:
+        rows.append(
+            f"<tr><td><strong>Best output tok/s (avg across lengths)</strong></td>"
+            f"<td><code>{_ablation_label(best_tps_avg)}</code></td></tr>"
+        )
+    if best_tps_8k:
+        rows.append(
+            f"<tr><td><strong>Best output tok/s at 8k tokens</strong></td>"
+            f"<td><code>{_ablation_label(best_tps_8k)}</code></td></tr>"
+        )
+
+    # ---- Comparison insights ----
+    insights = []
+
+    # Pick baseline (tp4, no EP, no async, no prefix-caching)
+    baseline = next((c for c in all_cfgs if '_tp4_' in c and '-ep' not in c
+                     and '-async' not in c and '-pc' not in c), None)
+
+    def pct_delta(a: Optional[float], b: Optional[float], lower_is_better: bool) -> Optional[str]:
+        """Return a formatted % improvement string from baseline b → variant a."""
+        if a is None or b is None or b == 0:
+            return None
+        delta = (b - a) / b * 100 if lower_is_better else (a - b) / b * 100
+        sign = "+" if delta > 0 else ""
+        return f"{sign}{delta:.1f}%"
+
+    # EP effect
+    ep_cfg = next((c for c in all_cfgs if '-ep' in c and '_tp4_' in c and '-async' not in c and '-pc' not in c), None)
+    if baseline and ep_cfg:
+        bl_ttft = avg_metric(baseline, "ttft_ms")
+        ep_ttft = avg_metric(ep_cfg, "ttft_ms")
+        bl_tps  = avg_metric(baseline, "throughput_tps")
+        ep_tps  = avg_metric(ep_cfg, "throughput_tps")
+        ttft_d = pct_delta(ep_ttft, bl_ttft, lower_is_better=True)
+        tps_d  = pct_delta(ep_tps, bl_tps, lower_is_better=False)
+        if ttft_d or tps_d:
+            parts = []
+            if ttft_d:
+                parts.append(f"TTFT {ttft_d}")
+            if tps_d:
+                parts.append(f"tok/s {tps_d}")
+            insights.append(
+                f"<li><strong>Expert Parallelism (tp4+EP)</strong> vs baseline: "
+                + ", ".join(parts)
+                + " — " + ("improves throughput by distributing MoE experts." if any('+' in p for p in parts)
+                           else "marginal or no benefit on this hardware at tp=4.")
+                + "</li>"
+            )
+
+    # TP=8 effect
+    tp8_cfg = next((c for c in all_cfgs if '_tp8_' in c and '-ep' not in c and '-async' not in c and '-pc' not in c), None)
+    if baseline and tp8_cfg:
+        bl_ttft = avg_metric(baseline, "ttft_ms")
+        t8_ttft = avg_metric(tp8_cfg, "ttft_ms")
+        bl_tps  = avg_metric(baseline, "throughput_tps")
+        t8_tps  = avg_metric(tp8_cfg, "throughput_tps")
+        ttft_d = pct_delta(t8_ttft, bl_ttft, lower_is_better=True)
+        tps_d  = pct_delta(t8_tps, bl_tps, lower_is_better=False)
+        parts = [p for p in [f"TTFT {ttft_d}" if ttft_d else None, f"tok/s {tps_d}" if tps_d else None] if p]
+        if parts:
+            insights.append(
+                f"<li><strong>TP=8</strong> vs tp=4: " + ", ".join(parts)
+                + " — " + ("larger tensor-parallel split reduces per-device compute and memory pressure."
+                           if any('+' in p for p in parts)
+                           else "TP=8 shows diminishing returns vs tp=4 at this scale.")
+                + "</li>"
+            )
+
+    # Async scheduling effect
+    async_cfg = next((c for c in all_cfgs if '-async' in c), None)
+    if baseline and async_cfg:
+        bl_ttft = avg_metric(baseline, "ttft_ms")
+        as_ttft = avg_metric(async_cfg, "ttft_ms")
+        bl_tps  = avg_metric(baseline, "throughput_tps")
+        as_tps  = avg_metric(async_cfg, "throughput_tps")
+        ttft_d = pct_delta(as_ttft, bl_ttft, lower_is_better=True)
+        tps_d  = pct_delta(as_tps, bl_tps, lower_is_better=False)
+        parts = [p for p in [f"TTFT {ttft_d}" if ttft_d else None, f"tok/s {tps_d}" if tps_d else None] if p]
+        if parts:
+            insights.append(
+                f"<li><strong>Async scheduling</strong> vs baseline: " + ", ".join(parts)
+                + " — " + ("CPU-GPU overlap via --async-scheduling reduces scheduling overhead."
+                           if any('+' in p for p in parts)
+                           else "--async-scheduling shows no measurable benefit at this batch size.")
+                + "</li>"
+            )
+
+    # Prefix caching effect
+    pc_cfg = next((c for c in all_cfgs if '-pc' in c), None)
+    if baseline and pc_cfg:
+        bl_ttft = avg_metric(baseline, "ttft_ms")
+        pc_ttft = avg_metric(pc_cfg, "ttft_ms")
+        bl_tps  = avg_metric(baseline, "throughput_tps")
+        pc_tps  = avg_metric(pc_cfg, "throughput_tps")
+        ttft_d = pct_delta(pc_ttft, bl_ttft, lower_is_better=True)
+        tps_d  = pct_delta(pc_tps, bl_tps, lower_is_better=False)
+        parts = [p for p in [f"TTFT {ttft_d}" if ttft_d else None, f"tok/s {tps_d}" if tps_d else None] if p]
+        if parts:
+            insights.append(
+                f"<li><strong>Prefix caching</strong> vs baseline: " + ", ".join(parts)
+                + " — " + ("KV-cache reuse reduces TTFT on repeated prompt prefixes."
+                           if any('+' in p for p in parts)
+                           else "prefix caching does not help with diverse AIME prompts (no repeated prefixes).")
+                + "</li>"
+            )
+
+    # Overall recommendation
+    winner = find_best("throughput_tps", lower_is_better=False) or find_best("ttft_ms", lower_is_better=True)
+    recommendation = (
+        f"<div class='alert alert-success mt-3'><strong>&#127941; Recommended configuration:</strong> "
+        f"<code>{_ablation_label(winner)}</code>"
+        + (" — highest output throughput across all tested input lengths." if winner == best_tps_avg else "")
+        + "</div>"
+    ) if winner else ""
+
+    rows_html = "\n".join(rows)
+    insights_html = "<ul>\n" + "\n".join(insights) + "\n</ul>" if insights else ""
+
+    return f"""
+<div class="row g-4 mt-2">
+  <div class="col-12">
+    <div class="card shadow-sm border-success">
+      <div class="card-header fw-bold text-success">&#128269; Best Configuration Summary</div>
+      <div class="card-body">
+        <table class="table table-sm table-bordered table-hover">
+          <thead><tr><th>Criterion</th><th>Winner</th></tr></thead>
+          <tbody>{rows_html}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-12">
+    <div class="card shadow-sm border-primary">
+      <div class="card-header fw-bold text-primary">&#128200; Ablation Insights</div>
+      <div class="card-body">
+        {insights_html or '<p class="text-muted">Run the ablation suite to populate insights.</p>'}
+        {recommendation}
+      </div>
+    </div>
+  </div>
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-header fw-bold">&#128221; Experimental Setup</div>
+      <div class="card-body" style="font-size:.85rem">
+        <ul>
+          <li><strong>Model:</strong> openai/gpt-oss-20b (MoE; MXFP4 baked in — quant=None is native MXFP4)</li>
+          <li><strong>Hardware:</strong> Intel Arc Pro B60 (multi-GPU, XPU backend)</li>
+          <li><strong>Always-on Intel optimizations:</strong> --block-size 64, --gpu-memory-util 0.9, --max-num-batched-tokens=8192, --dtype=bfloat16</li>
+          <li><strong>Input lengths:</strong> 1k / 2k / 4k / 8k tokens</li>
+          <li><strong>Samples per length:</strong> 5</li>
+          <li><strong>Ablation dimensions:</strong> TP (4 vs 8), Expert Parallelism (EP), Async Scheduling, Prefix Caching</li>
+          <li><strong>Note:</strong> TP=2 excluded (OOM); quant=fp8 excluded (model rejects fp8 override)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>"""
+
+
+def build_ablation_dashboard_html(
+    out_dir: Path,
+    succeeded: list[str],
+    model_mem_gib: Optional[Dict[str, float]] = None,
+) -> Optional[Path]:
+    """Build ablation_dashboard.html targeted at gpt-oss-20b configuration ablation.
+
+    Unlike the standard dashboard (concurrency sweep + bars), this dashboard shows:
+    - 4 LC lineplots (TTFT, ITL, req/s, tok/s) vs input tokens, one line per config
+    - Per-config tabs with LC TTFT detail
+    - Auto-generated "Conclusions" tab with best-config summary and pairwise insights
+
+    Args:
+        out_dir:       Directory containing ``{name}_lc*_benchmarks.json`` files.
+        succeeded:     Config names that completed at least one LC slice.
+        model_mem_gib: Optional {cfg.name: per_gpu_weight_gib}.
+
+    Returns:
+        Path to written ablation_dashboard.html, or None if no data.
+    """
+    ABLATION_TITLE = "Ablation Study — gpt-oss-20b on Intel Arc Pro B60"
+
+    # Load LC data for all succeeded configs
+    # lc_data: {cfg_name: {token_len: {metric_key: value}}}
+    lc_data: Dict[str, Dict[int, Dict[str, Optional[float]]]] = {}
+    for name in succeeded:
+        pts = _load_lc_points(out_dir, name)
+        if pts:
+            lc_data[name] = pts
+
+    if not lc_data:
+        print("  No ablation LC results found for dashboard", flush=True)
+        return None
+
+    LC_METRICS = [
+        ("ttft_ms",         "TTFT (ms)"),
+        ("itl_ms",          "ITL (ms)"),
+        ("throughput_rps",  "Req/s"),
+        ("throughput_tps",  "Output tok/s"),
+    ]
+
+    # Build datasets for each LC metric (one line per config)
+    lc_metric_ds: Dict[str, list] = {key: [] for key, _ in LC_METRICS}
+
+    for i, (cfg_name, tok_map) in enumerate(lc_data.items()):
+        color = COLORS[i % len(COLORS)]
+        label = _ablation_label(cfg_name)
+        ds_opts = {
+            "borderColor": color, "backgroundColor": color + "33",
+            "tension": 0.3, "spanGaps": True, "pointRadius": 6, "pointHoverRadius": 9,
+        }
+        for metric_key, _ in LC_METRICS:
+            xy = [
+                {"x": tok_len, "y": metrics.get(metric_key)}
+                for tok_len, metrics in sorted(tok_map.items())
+                if metrics.get(metric_key) is not None
+            ]
+            if xy:
+                lc_metric_ds[metric_key].append({"label": label, "data": xy, **ds_opts})
+
+    ts = _run_timestamp(out_dir)
+    conclusions_html = _generate_conclusions(lc_data)
+
+    # ------------------------------------------------------------------
+    # Per-config tab content (LC detail only)
+    # ------------------------------------------------------------------
+    config_tabs_nav = ""
+    config_tabs_content = ""
+
+    for i, (cfg_name, tok_map) in enumerate(lc_data.items()):
+        tab_id = "tab-" + cfg_name.replace("/", "-").replace("_", "-")
+        label  = _ablation_label(cfg_name)
+        color  = COLORS[i % len(COLORS)]
+        lc_tok_lens = sorted(tok_map.keys())
+        lc_labels_js = json.dumps(lc_tok_lens)
+
+        def _lc_series(metric: str) -> str:
+            return json.dumps([(tok_map.get(k) or {}).get(metric) for k in lc_tok_lens])
+
+        def cid(s: str) -> str:
+            return f"cfg-{i}-{s}"
+
+        row_html = "".join(
+            f'<tr><th class="text-end pe-3">{m_label}</th>'
+            + "".join(
+                f'<td>{f"{(tok_map.get(tl) or {}).get(m_key):.3g}" if (tok_map.get(tl) or {}).get(m_key) is not None else "—"}</td>'
+                for tl in lc_tok_lens
+            )
+            + "</tr>"
+            for m_key, m_label in LC_METRICS
+        )
+        col_heads = "".join(f'<th>{tl // 1024}k</th>' for tl in lc_tok_lens)
+
+        config_tabs_nav += (
+            f'<li class="nav-item">'
+            f'<a class="nav-link" data-bs-toggle="tab" href="#{tab_id}">{label}</a>'
+            f'</li>\n'
+        )
+        config_tabs_content += f"""<div class="tab-pane fade" id="{tab_id}">
+  <h6 class="mt-3 mb-2 fw-bold">{cfg_name}</h6>
+  <div class="row g-3">
+    <div class="col-md-5">
+      <table class="table table-sm table-bordered table-hover">
+        <thead><tr><th>Metric</th>{col_heads}</tr></thead>
+        <tbody>{row_html}</tbody>
+      </table>
+    </div>
+    <div class="col-md-7">
+      <div class="row g-2">
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">TTFT (ms) vs Input tokens</div><div class="card-body p-2"><canvas id="{cid('ttft')}"></canvas></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">ITL (ms) vs Input tokens</div><div class="card-body p-2"><canvas id="{cid('itl')}"></canvas></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Req/s vs Input tokens</div><div class="card-body p-2"><canvas id="{cid('rps')}"></canvas></div></div></div>
+        <div class="col-6"><div class="card shadow-sm"><div class="card-header" style="font-size:.8rem">Output tok/s vs Input tokens</div><div class="card-body p-2"><canvas id="{cid('tps')}"></canvas></div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){{
+  const col = "{color}";
+  const labels = {lc_labels_js};
+  function aLine(id, vals, yLabel) {{
+    const el = document.getElementById(id);
+    if (!el) return;
+    new Chart(el, {{
+      type: 'line',
+      data: {{ labels, datasets: [{{
+        label: yLabel, data: vals, borderColor: col,
+        backgroundColor: col + '33', pointRadius: 4, tension: 0.3, spanGaps: true
+      }}]}},
+      options: {{
+        plugins: {{ legend: {{ display: false }} }},
+        scales: {{
+          x: {{ title: {{ display: true, text: 'Input tokens' }} }},
+          y: {{ beginAtZero: false, title: {{ display: true, text: yLabel }} }}
+        }}
+      }}
+    }});
+  }}
+  aLine("{cid('ttft')}", {_lc_series('ttft_ms')},        "TTFT (ms)");
+  aLine("{cid('itl')}",  {_lc_series('itl_ms')},         "ITL (ms)");
+  aLine("{cid('rps')}",  {_lc_series('throughput_rps')}, "Req/s");
+  aLine("{cid('tps')}",  {_lc_series('throughput_tps')}, "Output tok/s");
+}})();
+</script>\n"""
+
+    # ------------------------------------------------------------------
+    # Assemble the page
+    # ------------------------------------------------------------------
+    page = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{ABLATION_TITLE}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <style>
+    body {{ background:#f8f9fa; }}
+    .nav-tabs .nav-link {{ font-size:.82rem; padding:.35rem .7rem; }}
+    .card-header {{ background:#e9ecef; font-size:.88rem; }}
+  </style>
+</head>
+<body>
+<div class="container-fluid py-3">
+  <h4 class="mb-1 text-center fw-bold">{ABLATION_TITLE}</h4>
+  <p class="text-center text-muted mb-1" style="font-size:.82rem">{ts} &nbsp;|&nbsp; gpt-oss-20b &nbsp;|&nbsp; Intel Arc Pro B60 &nbsp;|&nbsp; {len(lc_data)} configurations</p>
+  <ul class="nav nav-tabs flex-wrap mb-0" id="mainTabs">
+    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-overview">&#128202; Overview</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-conclusions">&#127919; Conclusions</a></li>
+    {config_tabs_nav}
+  </ul>
+  <div class="tab-content border border-top-0 rounded-bottom bg-white p-3">
+    <div class="tab-pane fade show active" id="tab-overview">
+      <div class="row g-4 mt-2">
+        <div class="col-md-6"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">TTFT (ms) vs Input tokens</div><div class="card-body"><canvas id="lc-ttft" style="max-height:280px"></canvas></div></div></div>
+        <div class="col-md-6"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">ITL (ms) vs Input tokens</div><div class="card-body"><canvas id="lc-itl" style="max-height:280px"></canvas></div></div></div>
+        <div class="col-md-6"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">Req/s vs Input tokens</div><div class="card-body"><canvas id="lc-rps" style="max-height:280px"></canvas></div></div></div>
+        <div class="col-md-6"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">Output tok/s vs Input tokens</div><div class="card-body"><canvas id="lc-tps" style="max-height:280px"></canvas></div></div></div>
+      </div>
+    </div>
+    <div class="tab-pane fade" id="tab-conclusions">
+      {conclusions_html}
+    </div>
+    {config_tabs_content}
+  </div>
+</div>
+<script>
+function lcLine(id, datasets, yLabel) {{
+  const el = document.getElementById(id);
+  if (!el || !datasets.length) return;
+  new Chart(el, {{
+    type: 'line', data: {{ datasets }},
+    options: {{
+      parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
+      scales: {{
+        x: {{ type: 'linear', title: {{ display: true, text: 'Input tokens' }} }},
+        y: {{ beginAtZero: false, title: {{ display: true, text: yLabel }} }}
+      }},
+      plugins: {{ legend: {{ position: 'top' }} }}
+    }}
+  }});
+}}
+lcLine('lc-ttft', {json.dumps(lc_metric_ds['ttft_ms'])},        'TTFT (ms)');
+lcLine('lc-itl',  {json.dumps(lc_metric_ds['itl_ms'])},         'ITL (ms)');
+lcLine('lc-rps',  {json.dumps(lc_metric_ds['throughput_rps'])}, 'Req/s');
+lcLine('lc-tps',  {json.dumps(lc_metric_ds['throughput_tps'])}, 'Output tok/s');
+</script>
+</body>
+</html>"""
+
+    out_path = out_dir / "ablation_dashboard.html"
+    out_path.write_text(page)
+    print(f"\n  Ablation Dashboard → {out_path}", flush=True)
+    write_serve_script(out_path)
+    return out_path

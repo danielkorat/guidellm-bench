@@ -62,6 +62,60 @@ SANITY = dict(
     timeout_startup=600,
 )
 
+# ---------------------------------------------------------------------------
+# Ablation study: optimal vLLM configuration for gpt-oss-20b on Intel XPU
+# ---------------------------------------------------------------------------
+#
+# Research findings (Intel docs / blog, vLLM 0.14.0-b8 XPU):
+#  • gpt-oss-20b has MXFP4 *baked in* → omit --quantization; quant=None IS MXFP4.
+#    Passing --quantization fp8 is rejected (skip rule). mxfp4 is the only valid quant.
+#  • Requires tp >= 4 (OOM with tp=2 on our hardware). tp=2 is intentionally omitted.
+#  • Intel-recommended server flags (already hardcoded in build_vllm_cmd):
+#      --block-size 64, --gpu-memory-util 0.9, --no-enable-prefix-caching,
+#      --max-num-batched-tokens=8192
+#  • Remaining ablation dimensions:
+#      (a) Expert Parallelism (EP) — --enable-expert-parallel
+#      (b) Tensor parallelism: tp=4 vs tp=8
+#      (c) Async scheduling — --async-scheduling (Intel 0.14.1-xpu: reduces CPU overhead)
+#      (d) Prefix caching — enable to test whether it helps long-context TTFT
+#
+# Ablation LC lengths: [1k, 2k, 4k, 8k] (shorter than full LC run, 5 samples each)
+# Results dir: ablation_results/YYYYMMDD_HHMM/
+
+ABLATION_CONFIGS: list = []  # populated lazily via get_ablation_configs() below
+
+
+def get_ablation_configs() -> list:
+    """Return the ablation config matrix for gpt-oss-20b on Intel XPU."""
+    return [
+        # 1. Baseline: tp=4, no EP, Intel defaults (MXFP4 native, eager=True)
+        Config(model="openai/gpt-oss-20b", tp=4, quant=None, eager=True),
+
+        # 2. Expert Parallelism ON (tp=4): experts distributed across 4 GPUs
+        #    vLLM flag: --enable-expert-parallel (no size argument on this build)
+        Config(model="openai/gpt-oss-20b", tp=4, quant=None, eager=True, expert_parallel_size=4),
+
+        # 3. TP=8: tensor parallelism scaled to 8 GPUs (if available on the system)
+        #    May fail at server startup if only 4 GPUs present — skipped gracefully
+        Config(model="openai/gpt-oss-20b", tp=8, quant=None, eager=True),
+
+        # 4. TP=8 + EP: combine both parallelism strategies on 8 GPUs
+        Config(model="openai/gpt-oss-20b", tp=8, quant=None, eager=True, expert_parallel_size=8),
+
+        # 5. Async scheduling (Intel 0.14.1-xpu): overlaps scheduling with model execution
+        #    Intel docs: "may help reduce the CPU overheads, leading to better latency"
+        Config(model="openai/gpt-oss-20b", tp=4, quant=None, eager=True, async_scheduling=True),
+
+        # 6. Prefix caching enabled: test whether KV-cache reuse helps LC TTFT
+        #    Default is disabled (--no-enable-prefix-caching); this removes that flag
+        Config(model="openai/gpt-oss-20b", tp=4, quant=None, eager=True, prefix_caching=True),
+    ]
+
+
+# LC input-length sweep for the ablation study (shorter than full LC run)
+# 1k / 2k / 4k / 8k — 16k is excluded to keep total run time manageable
+ABLATION_LC_LENGTHS: list = [1024, 2048, 4096, 8192]
+
 
 # ---------------------------------------------------------------------------
 # Config dataclass
@@ -75,6 +129,8 @@ class Config:
     eager: bool
     speculative_config: Optional[str] = None       # JSON string for --speculative_config
     expert_parallel_size: Optional[int] = None     # --expert-parallel-size N (MoE EP)
+    async_scheduling: bool = False                  # --async-scheduling (Intel XPU optimisation)
+    prefix_caching: bool = False                    # enable prefix caching (default: off via --no-enable-prefix-caching)
 
     @property
     def name(self) -> str:
@@ -83,7 +139,9 @@ class Config:
         q = self.quant or "none"
         suffix = "-eagle3" if self.speculative_config else ""
         ep_suffix = "-ep" if self.expert_parallel_size else ""
-        return f"{m}_tp{self.tp}_quant-{q}{suffix}{ep_suffix}"
+        async_suffix = "-async" if self.async_scheduling else ""
+        pc_suffix = "-pc" if self.prefix_caching else ""
+        return f"{m}_tp{self.tp}_quant-{q}{suffix}{ep_suffix}{async_suffix}{pc_suffix}"
 
 
 # ---------------------------------------------------------------------------

@@ -409,6 +409,15 @@ nohup ./bench.py > /dev/null 2>&1 &
 # Long-context input-length sweep (1k/4k/8k/16k, 10 samples each, TTFT chart)
 ./bench.py --long-contexts
 
+# Ablation study: optimal vLLM config for gpt-oss-20b on Intel XPU
+# 6 configs × 4 input lengths (1k/2k/4k/8k), 5 samples each
+# Ablation dims: TP=4 vs TP=8, EP, async-scheduling, prefix-caching
+# Output → ./ablation_results/YYYYMMDD_HHMM/ablation_dashboard.html
+./bench.py --ablation
+
+# Ablation with custom dataset (auto-discovers from last run if omitted)
+./bench.py --ablation --data cx-cmu/deepresearchgym-agentic-search-logs
+
 # Combined: gpt-oss-20b EP comparison with long-context slices on deepresearchgym dataset
 nohup ./bench.py \
   --models openai/gpt-oss-20b \
@@ -448,7 +457,29 @@ bash results/YYYYMMDD_HHMM/serve_dashboard.sh
 
 ---
 
-### 26. Israel Timezone — Use `_israel_now()` Not Raw `ZoneInfo`
+### 31. Ablation Mode (`--ablation`)
+**RULE**: `--ablation` is a focused LC-only study for `gpt-oss-20b` Intel XPU optimization.
+- Results → `./ablation_results/YYYYMMDD_HHMM/` (separate from `./results/`)
+- Input lengths: `[1024, 2048, 4096, 8192]` (`ABLATION_LC_LENGTHS` in `config.py`)
+- 5 samples per length, 512 output tokens
+- 6 predefined configs from `get_ablation_configs()` in `config.py`:
+  1. Baseline: `tp=4, quant=None, eager=True` (MXFP4 native, Intel defaults)
+  2. +EP: `tp=4, expert_parallel_size=4` (`--enable-expert-parallel`)
+  3. +TP8: `tp=8` (wider tensor parallelism)
+  4. +TP8+EP: `tp=8, expert_parallel_size=8`
+  5. +Async: `tp=4, async_scheduling=True` (`--async-scheduling`, Intel 0.14.1-xpu)
+  6. +PC: `tp=4, prefix_caching=True` (enables KV-cache reuse, removes `--no-enable-prefix-caching`)
+- Dataset: `--data` if provided, else auto-discovered from `./results/*/datasets/*.jsonl`, else AIME 2024
+- `_run_ablation()` in `bench.py` handles the loop; `build_ablation_dashboard_html()` in `dashboard.py` builds the output
+- Dashboard: `ablation_dashboard.html` with 4 LC lineplots (TTFT/ITL/req/s/tok/s vs input tokens) + auto-generated "Conclusions" tab
+- `--ablation` and `--resume` are compatible (LC checkpoint files already present are skipped)
+- `--ablation` is **not** combinable with `--sanity`, `--ep`, `--ep-compare` (uses its own config matrix)
+
+### 32. New Config Fields: `async_scheduling` and `prefix_caching`
+**RULE**: `Config` dataclass has two new boolean fields:
+- `async_scheduling: bool = False` → emits `--async-scheduling` in `build_vllm_cmd()`
+- `prefix_caching: bool = False` → when `True`, omits `--no-enable-prefix-caching` (default is always added)
+Both fields are included in `_cfg_to_status_key()` so server reuse correctly detects config changes.
 **RULE**: Never call `datetime.now(ZoneInfo("Asia/Jerusalem"))` directly. Use `_israel_now()` in `bench.py` which wraps it in try/except and falls back to UTC+2 fixed offset if `tzdata` is not installed. This prevents silent UTC fallback that produces wrong timestamps on a fresh container.
 
 ### 27. Incomplete Run Auto-Cleanup
@@ -475,7 +506,7 @@ Cached to `out_dir/datasets/{safe_name}_{split}_v1.jsonl`. Output: `{prompt, out
 - **Mutually exclusive** with `--ep` — validated at startup with `sys.exit()`.
 - Both `_EP_VARIANTS` list and the dedup loop live in `bench.py::main()` (not `config.py`).
 
-**Last Updated**: March 3, 2026 — Added --ep-compare, --data, --long-contexts, _israel_now(), _clean_incomplete_runs(); updated for new features
+**Last Updated**: March 3, 2026 — Added --ablation mode, async_scheduling + prefix_caching Config fields, get_ablation_configs(), build_ablation_dashboard_html(), _run_ablation() in bench.py, _find_last_run_dataset(); updated server.py build_vllm_cmd() for new fields
 **Primary Maintainer**: Daniel Korat, Intel
 
 ---

@@ -111,6 +111,15 @@ nohup ./bench.py > /dev/null 2>&1 &
 # Long-context TTFT sweep: 1k/4k/8k/16k input tokens (10 samples each)
 ./bench.py --long-contexts
 
+# Ablation study: optimize gpt-oss-20b vLLM config on Intel XPU
+# Runs 6 predefined configs × 4 input lengths (1k/2k/4k/8k), 5 samples each.
+# Ablation dimensions: TP (4 vs 8), Expert Parallelism, async-scheduling, prefix-caching.
+# Results → ./ablation_results/YYYYMMDD_HHMM/ablation_dashboard.html
+./bench.py --ablation
+
+# Ablation with a custom dataset (auto-discovers from last run if --data omitted)
+./bench.py --ablation --data cx-cmu/deepresearchgym-agentic-search-logs
+
 # Combined: gpt-oss-20b EP comparison + long-context sweep on a custom dataset
 nohup ./bench.py \
   --models openai/gpt-oss-20b --tp 4 \
@@ -145,13 +154,13 @@ guidellm-bench/
 ├── README.md
 ├── PLAN.md                       # Living plan/checklist for feature work
 ├── guidellm_bench/               # Core package
-│   ├── config.py                 # Config dataclass, defaults, skip rules
+│   ├── config.py                 # Config dataclass, defaults, skip rules, ablation matrix
 │   ├── docker.py                 # Container lifecycle: ensure_container_running
 │   ├── server.py                 # vLLM server lifecycle
 │   ├── dataset.py                # AIME 2024 + generic HF dataset ; long-context slicing
 │   ├── benchmark.py              # guidellm benchmark runner (+ lc_mode)
-│   └── dashboard.py              # Interactive HTML dashboard builder
-└── results/             # Created at runtime
+│   └── dashboard.py              # Interactive HTML dashboard builder (+ ablation dashboard)
+└── results/             # Created at runtime (full runs)
     └── YYYYMMDD_HHMM/
         ├── {cfg}_benchmarks.json
         ├── {cfg}_benchmarks.html
@@ -159,6 +168,13 @@ guidellm-bench/
         ├── dashboard.html            # interactive dashboard (all configs + LC charts)
         ├── serve_dashboard.sh
         ├── datasets/                 # cached JSONL files for this run
+        └── logs/
+ablation_results/        # Created at runtime (--ablation runs)
+    └── YYYYMMDD_HHMM/
+        ├── {cfg}_lc{N}k_benchmarks.json  # 1k/2k/4k/8k LC slices
+        ├── ablation_dashboard.html       # lineplots + auto-generated conclusions
+        ├── serve_ablation_dashboard.sh
+        ├── datasets/
         └── logs/
 ```
 

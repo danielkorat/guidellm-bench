@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 results/
 sanity_results/
+ablation_results/
 guidellm_results/
 guidellm_sanity_results/
 bench_full.log

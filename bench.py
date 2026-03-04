@@ -70,9 +70,11 @@ import argparse
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 from guidellm_bench import (
+    ABLATION_LC_LENGTHS,
     EAGLE3_SPECULATIVE_CONFIG,
     FULL,
     LONG_CONTEXT_LENGTHS,
@@ -80,7 +82,9 @@ from guidellm_bench import (
     Config,
     SERVER_STATUS_PATH,
     XpuKernelHangError,
+    build_ablation_dashboard_html,
     build_dashboard_html,
+    get_ablation_configs,
     is_moe_model,
     parse_model_mem_gib,
     prepare_aime_dataset,
@@ -181,6 +185,26 @@ def _clean_incomplete_runs(results_dir: str) -> None:
         print(f"  Auto-cleaned {len(removed)} incomplete run dir(s) from {base}: {removed}", flush=True)
 
 
+def _find_last_run_dataset(base_dirs: tuple = ("./results",)) -> Optional[str]:
+    """Return the path to the most recently-created non-LC JSONL dataset.
+
+    Searches *base_dirs* in order, within each run dir's ``datasets/`` subfolder.
+    Excludes ``lc_*`` slices (those are derived from the source dataset).
+    """
+    for base in base_dirs:
+        d = Path(base)
+        if not d.exists():
+            continue
+        for run_dir in sorted(d.iterdir(), key=lambda x: x.name, reverse=True):
+            ds_dir = run_dir / "datasets"
+            if not ds_dir.is_dir():
+                continue
+            for jsonl in sorted(ds_dir.glob("*.jsonl"), key=lambda x: x.stat().st_mtime, reverse=True):
+                if not jsonl.name.startswith("lc_"):
+                    return str(jsonl)
+    return None
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="guidellm benchmarking for vLLM model/tp/quant/eager configs",
@@ -225,6 +249,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--long-contexts", action="store_true", dest="long_contexts",
         help="Run additional mini-benchmarks at 1k/4k/8k/16k input tokens (10 samples "
              "each) and add a TTFT-vs-input-length chart to each config tab in the dashboard.",
+    )
+    p.add_argument(
+        "--ablation", action="store_true",
+        help="Run ablation study for gpt-oss-20b: LC-only benchmarks at 1k/2k/4k/8k, "
+             "5 samples each, across a predefined set of Intel XPU optimization configs "
+             "(EP, tp=8, async-scheduling, prefix-caching). "
+             "Results saved to ./ablation_results/. Combine with --data to use a custom dataset.",
     )
     p.add_argument(
         "--resume", metavar="DIR", nargs="?", const="",
@@ -276,6 +307,10 @@ def main() -> None:
     max_model_len    = get("max_model_len", "max_model_len")
     results_dir      = get("results_dir", "results_dir")
     timeout_startup  = get("timeout_startup", "timeout_startup")
+
+    # Ablation mode uses its own results directory (separate from full runs)
+    if getattr(args, "ablation", False):
+        results_dir = "./ablation_results"
 
     # Auto-clean incomplete run dirs (no _benchmarks.json) from prior aborted runs.
     # Skip when resuming — the target dir may legitimately have zero files yet.
@@ -369,6 +404,21 @@ def main() -> None:
             mem = parse_model_mem_gib(p)
             if mem is not None:
                 model_mem_gib[cfg_name] = mem
+
+    # ------------------------------------------------------------------
+    # Ablation mode: LC-only study; bypass the standard config matrix loop
+    # ------------------------------------------------------------------
+    if getattr(args, "ablation", False):
+        _run_ablation(
+            out_dir=out_dir,
+            log_dir=log_dir,
+            dataset_path=dataset_path,
+            max_model_len=max_model_len,
+            timeout_startup=timeout_startup,
+            model_mem_gib=model_mem_gib,
+            resume=args.resume,
+        )
+        return  # ablation handled; skip standard loop
 
     # Build config list, applying skip rules
     configs: list[Config] = []
@@ -567,6 +617,191 @@ def main() -> None:
     if succeeded:
         build_dashboard_html(out_dir, succeeded, model_mem_gib=model_mem_gib)
         _serve_dashboard(out_dir)
+
+
+# ---------------------------------------------------------------------------
+# Ablation study
+# ---------------------------------------------------------------------------
+
+def _run_ablation(
+    out_dir: Path,
+    log_dir: Path,
+    dataset_path: Optional[str],
+    max_model_len: int,
+    timeout_startup: int,
+    model_mem_gib: dict,
+    resume,
+) -> None:
+    """LC-only ablation study for gpt-oss-20b on Intel XPU.
+
+    Runs a predefined matrix of vLLM configuration variants at 4 input-token
+    lengths (1k/2k/4k/8k), 5 samples each.  No main concurrency sweep is run.
+    Builds ablation_dashboard.html with lineplots + auto-generated conclusions.
+    """
+    print(f"\n{'='*60}")
+    print("ABLATION MODE: gpt-oss-20b Intel XPU optimization study")
+    print(f"{'='*60}\n")
+
+    # Dataset: caller already resolved --data / AIME.  If still None (no internet
+    # and no --data), try to auto-discover a JSONL from a prior full run.
+    if dataset_path is None:
+        discovered = _find_last_run_dataset()
+        if discovered:
+            print(f"  Ablation: auto-discovered dataset from last run: {discovered}", flush=True)
+            dataset_path = discovered
+        else:
+            dataset_path = prepare_aime_dataset(output_tokens=1024)
+
+    # max_model_len must be able to handle 8k-token inputs + 512 output tokens
+    if max_model_len < 8192:
+        print(f"  Ablation: max_model_len {max_model_len} → overriding to 16384", flush=True)
+        max_model_len = 16384
+
+    # Prepare LC JSONL slices: 1k / 2k / 4k / 8k, 5 samples, 512 output tokens
+    lc_datasets: dict[int, Optional[str]] = {}
+    if dataset_path:
+        lc_datasets = prepare_long_context_datasets(
+            source_path=dataset_path,
+            token_lengths=ABLATION_LC_LENGTHS,
+            num_samples=5,
+            output_tokens=512,
+            cache_dir=out_dir / "datasets",
+        )
+
+    # Build ablation config matrix, applying skip rules
+    ablation_cfgs: list[Config] = []
+    for c in get_ablation_configs():
+        reason = skip_reason(c.model, c.quant, c.eager, c.tp)
+        if reason:
+            print(f"  SKIP  {c.name}: {reason}")
+        else:
+            ablation_cfgs.append(c)
+
+    n_runs = len(ablation_cfgs) * len(lc_datasets)
+    print(
+        f"{len(ablation_cfgs)} configs × {len(lc_datasets)} LC lengths = {n_runs} benchmark runs\n",
+        flush=True,
+    )
+
+    global _current_server_proc
+    current_server_proc = None
+    succeeded: list[str] = []
+    failed: list[tuple[str, str]] = []
+
+    for i, cfg in enumerate(ablation_cfgs, 1):
+        print(f"\n{'='*60}")
+        print(f"[{i}/{len(ablation_cfgs)}]  {cfg.name}")
+        print(f"{'='*60}")
+
+        _server_log = log_dir / f"{cfg.name}_server.log"
+        if server_is_reusable(cfg, max_model_len):
+            print("  Reusing running server (config matches, server is healthy)", flush=True)
+        else:
+            stop_server(current_server_proc)
+            current_server_proc = None
+            _current_server_proc = None
+            proc = start_server(cfg, max_model_len, _server_log)
+            _current_server_proc = proc
+            try:
+                ready = wait_for_server(timeout_startup, log_path=_server_log, proc=proc)
+            except XpuKernelHangError as _hang:
+                print(f"  FATAL: {_hang}", flush=True)
+                stop_server(proc)
+                sys.exit(42)
+            if not ready:
+                stop_server(proc)
+                current_server_proc = None
+                _current_server_proc = None
+                failed.append((cfg.name, "server startup failed"))
+                continue
+            write_server_status(cfg, max_model_len, proc.pid, _server_log)
+            current_server_proc = proc
+            _current_server_proc = proc
+
+        # Parse GPU weight memory for the dashboard
+        mem_gib = parse_model_mem_gib(_server_log)
+        if mem_gib is not None:
+            model_mem_gib[cfg.name] = mem_gib
+            print(
+                f"  Model weights: {mem_gib:.2f} GiB/GPU × {cfg.tp} GPUs"
+                f" = {mem_gib * cfg.tp:.2f} GiB total",
+            )
+
+        # LC-only: no main sweep benchmark — just the input-length slices
+        any_lc_success = False
+        for token_len, lc_path in sorted(lc_datasets.items()):
+            if lc_path is None:
+                continue
+            lc_label = f"{token_len // 1024}k" if token_len >= 1024 else str(token_len)
+            lc_name = f"{cfg.name}_lc{lc_label}"
+            lc_checkpoint = out_dir / f"{lc_name}_benchmarks.json"
+            if resume is not None and lc_checkpoint.exists():
+                print(f"    ✓  lc{lc_label} already done — skipping", flush=True)
+                any_lc_success = True
+                continue
+            print(f"    → lc{lc_label} ({token_len} tokens, 5 samples)", flush=True)
+            lc_data = run_guidellm(
+                cfg,
+                token_len,   # input tokens (overrides global input_len for LC runs)
+                512,         # output tokens
+                1,           # concurrency=1 for serial profile
+                5,           # num_prompts
+                log_dir / f"{lc_name}_bench.log",
+                sweep=False,
+                dataset_path=lc_path,
+                lc_mode=True,
+            )
+            if lc_data is not None:
+                lc_saved = copy_results(lc_name, out_dir, log_dir / ".guidellm_out")
+                print(f"    ✓  lc{lc_label} → {', '.join(lc_saved)}", flush=True)
+                any_lc_success = True
+            else:
+                print(f"    ✗  lc{lc_label} failed", flush=True)
+
+        if any_lc_success:
+            succeeded.append(cfg.name)
+        else:
+            failed.append((cfg.name, "all LC slices failed"))
+
+    # Summary
+    print(f"\n{'='*60}")
+    print(
+        f"Ablation finished: {len(succeeded)} succeeded / {len(failed)} failed"
+        f" / {len(ablation_cfgs)} total",
+    )
+    if failed:
+        print("\nFailed configurations:")
+        for name, reason_str in failed:
+            print(f"  ✗  {name}: {reason_str}")
+    print(f"\nAblation results: {out_dir}")
+
+    if succeeded:
+        abl_html = build_ablation_dashboard_html(out_dir, succeeded, model_mem_gib=model_mem_gib)
+        if abl_html:
+            _serve_html(abl_html)
+
+
+def _serve_html(html_path: Path) -> None:
+    """Kill any prior server on _DASHBOARD_PORT, serve *html_path*, print URL."""
+    if not html_path.exists():
+        return
+    subprocess.run(
+        ["bash", "-c",
+         f"fuser -k {_DASHBOARD_PORT}/tcp 2>/dev/null || "
+         f"lsof -ti tcp:{_DASHBOARD_PORT} 2>/dev/null | xargs -r kill -9"],
+        capture_output=True,
+    )
+    time.sleep(0.5)
+    subprocess.Popen(
+        ["python3", "-m", "http.server", str(_DASHBOARD_PORT),
+         "--directory", str(html_path.parent.resolve())],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    time.sleep(0.5)
+    url = f"http://localhost:{_DASHBOARD_PORT}/{html_path.name}"
+    print(f"\n  Ablation dashboard served at: {url}\n", flush=True)
 
 
 _DASHBOARD_PORT = 8081
