@@ -157,6 +157,51 @@ ABLATION_C16_SAMPLES: int = 20      # samples per length (20 sustains c=16 with 
 
 
 # ---------------------------------------------------------------------------
+# Throughput study: concurrency × long-context sweep for gpt-oss-20b
+# ---------------------------------------------------------------------------
+#
+# Two server configs (non-EP and EP), both tp=8 + async-scheduling + PC off.
+# Concurrencies: [1, 16, 64, 128].  EP only for c > 1.
+# Input lengths: 16k / 32k / 48k / 96k tokens.
+# Output length: 16k tokens.
+#
+# Samples per concurrency = 2×c so the server sustains full queue depth:
+#   c=1   → 10 requests (serial)
+#   c=16  → 32 requests
+#   c=64  → 128 requests
+#   c=128 → 256 requests
+#
+# max_num_batched_tokens raised to max_model_len (131072) so vLLM processes
+# a 96k-token prefill in a single forward pass instead of chunking it.
+# Prefix caching always disabled (--no-enable-prefix-caching) on both servers.
+
+THROUGHPUT_INPUT_LENGTHS: list          = [16384, 32768, 49152, 98304]   # 16k/32k/48k/96k
+THROUGHPUT_OUTPUT_LEN: int              = 16384                           # 16k fixed output
+THROUGHPUT_CONCURRENCIES: list          = [1, 16, 64, 128]
+THROUGHPUT_MAX_MODEL_LEN: int           = 131072   # model max_position_embeddings
+THROUGHPUT_MAX_NUM_BATCHED_TOKENS: int  = 131072   # raised from 8192 to handle 96k prefill
+THROUGHPUT_SAMPLES: dict                = {1: 10, 16: 32, 64: 128, 128: 256}
+THROUGHPUT_MAX_SECONDS: int             = 10800    # 3h ceiling per cell (96k @ c=1 ≈ 80 min)
+
+
+def get_throughput_configs() -> list:
+    """Return the two server configs for the throughput study.
+
+    Server A (no EP): runs c=1, c=16, c=64, c=128.
+    Server B (EP):    runs c=16, c=64, c=128 only (EP skipped for c=1).
+    Both use tp=8 + async_scheduling + prefix_caching=False.
+    """
+    return [
+        # Server A: tp=8, async scheduling, no expert parallelism
+        Config(model="openai/gpt-oss-20b", tp=8, quant=None, eager=True,
+               async_scheduling=True, prefix_caching=False),
+        # Server B: tp=8, async scheduling + expert parallelism (MoE EP)
+        Config(model="openai/gpt-oss-20b", tp=8, quant=None, eager=True,
+               async_scheduling=True, prefix_caching=False, expert_parallel_size=8),
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Config dataclass
 # ---------------------------------------------------------------------------
 

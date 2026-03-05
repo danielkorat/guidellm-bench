@@ -164,8 +164,15 @@ def _run_tee(cmd: list[str], log_path: Path) -> subprocess.Popen:
 # Server lifecycle
 # ---------------------------------------------------------------------------
 
-def build_vllm_cmd(cfg: Config, max_model_len: int) -> str:
-    """Return the vllm serve shell command for *cfg*."""
+def build_vllm_cmd(cfg: Config, max_model_len: int, max_num_batched_tokens: int = 8192) -> str:
+    """Return the vllm serve shell command for *cfg*.
+
+    Args:
+        max_num_batched_tokens: Override for --max-num-batched-tokens.  Default 8192
+            (Intel-recommended for normal runs).  The throughput study raises this to
+            max_model_len (131072) so vLLM can process a 96k-token prefill in a single
+            forward pass instead of chunking it across multiple iterations.
+    """
     parts = [
         f"VLLM_WORKER_MULTIPROC_METHOD=spawn vllm serve {cfg.model}",
         "--dtype=bfloat16",
@@ -175,7 +182,7 @@ def build_vllm_cmd(cfg: Config, max_model_len: int) -> str:
         "--trust-remote-code",
         "--disable-sliding-window",
         "--disable-log-requests",
-        "--max-num-batched-tokens=8192",
+        f"--max-num-batched-tokens={max_num_batched_tokens}",
         f"--max-model-len {max_model_len}",
         f"-tp={cfg.tp}",
     ]
@@ -198,13 +205,19 @@ def build_vllm_cmd(cfg: Config, max_model_len: int) -> str:
     return " ".join(parts)
 
 
-def start_server(cfg: Config, max_model_len: int, log_path: Path) -> subprocess.Popen:
+def start_server(cfg: Config, max_model_len: int, log_path: Path,
+                 max_num_batched_tokens: int = 8192) -> subprocess.Popen:
     """Start the vLLM server (runs directly inside the container).
 
     Also persists the full ``vllm serve …`` command to
     ``{log_path.parent}/{cfg.name}_vllm_cmd.txt`` so dashboards can display it.
+
+    Args:
+        max_num_batched_tokens: Forwarded to build_vllm_cmd.  Use the default 8192
+            for ablation/full runs; pass THROUGHPUT_MAX_NUM_BATCHED_TOKENS (131072)
+            for the throughput study so large prefills process in one pass.
     """
-    vllm_cmd = build_vllm_cmd(cfg, max_model_len)
+    vllm_cmd = build_vllm_cmd(cfg, max_model_len, max_num_batched_tokens)
     # Write the command for later dashboard display (docker image + full flags)
     try:
         cmd_path = log_path.parent / f"{cfg.name}_vllm_cmd.txt"

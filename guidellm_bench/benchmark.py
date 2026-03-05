@@ -23,21 +23,32 @@ def run_guidellm(
     sweep: bool = True,
     dataset_path: Optional[str] = None,
     lc_mode: bool = False,
+    data_samples: int = -1,
+    max_seconds: int = 900,
+    num_requests_override: Optional[int] = None,
 ) -> Optional[dict]:
     """Run a guidellm benchmark and return the parsed JSON result dict.
 
     Args:
-        cfg:          Target configuration.
-        input_len:    Synthetic prompt token length (ignored when dataset_path set).
-        output_len:   Synthetic output token count (ignored when dataset_path set).
-        concurrency:  Number of concurrent requests (sanity mode).
-        num_prompts:  Request count (sanity mode).
-        log_path:     File to capture stdout/stderr.
-        sweep:        True → synchronous profile with warmup/cooldown (full runs).
-                      False → concurrent profile, single rate (sanity).
-        dataset_path: Path to JSONL file; None → synthetic data.
-        lc_mode:      True → long-context slice (synchronous, 10 reqs, no warmup/cooldown).
-                      Overrides sweep and num_prompts for the slice.
+        cfg:                   Target configuration.
+        input_len:             Synthetic prompt token length (ignored when dataset_path set).
+        output_len:            Synthetic output token count (ignored when dataset_path set).
+        concurrency:           Number of concurrent requests (sanity mode).
+        num_prompts:           Request count (sanity mode).
+        log_path:              File to capture stdout/stderr.
+        sweep:                 True → synchronous profile with warmup/cooldown (full runs).
+                               False → concurrent profile, single rate (sanity/throughput).
+        dataset_path:          Path to JSONL file; None → synthetic data.
+        lc_mode:               True → long-context slice (synchronous, no warmup/cooldown).
+                               Overrides sweep and num_prompts for the slice.
+        data_samples:          --data-samples value (-1 = all rows).  Pass the exact
+                               request count to avoid reading more rows than needed
+                               (e.g. 256-row file but only 32 needed at c=16).
+        max_seconds:           --max-seconds wall-clock budget per run.  Default 900s;
+                               raise to 10800 for long-context throughput cells.
+        num_requests_override: Override the effective request count in lc_mode
+                               (default 10).  Used by the throughput study for c=1
+                               serial runs with a custom sample count.
 
     Returns:
         Parsed benchmarks.json dict, or None on failure.
