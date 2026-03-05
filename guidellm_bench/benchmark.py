@@ -96,6 +96,8 @@ def run_guidellm(
             "--profile concurrent",
             f"--rate {concurrency}",
             f"--max-requests {num_prompts}",
+            "--max-errors 5",             # abort on repeated server errors
+            f"--max-seconds {max_seconds}",  # hard wall-clock cap
         ]
 
     cmd = " ".join([
@@ -114,12 +116,20 @@ def run_guidellm(
         ["bash", "--login", "-c", f"{_PREAMBLE} && {cmd}"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
     )
-    with open(log_path, "w") as f:
-        for line in proc.stdout:
-            print(line, end="", flush=True)
-            f.write(line)
-            f.flush()
-    proc.wait()
+    try:
+        with open(log_path, "w") as f:
+            for line in proc.stdout:
+                print(line, end="", flush=True)
+                f.write(line)
+                f.flush()
+    except Exception as _exc:
+        print(f"  guidellm stdout read error: {_exc}", flush=True)
+    finally:
+        try:
+            proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
 
     if proc.returncode != 0:
         print(f"  guidellm exited with code {proc.returncode}", flush=True)

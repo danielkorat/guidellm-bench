@@ -1083,13 +1083,17 @@ def _run_throughput(
     tp_datasets: dict[int, Optional[str]] = {}
     for il in THROUGHPUT_INPUT_LENGTHS:
         if dataset_path:
-            tp_datasets[il] = prepare_throughput_dataset(
-                source_path=dataset_path,
-                input_len=il,
-                output_len=THROUGHPUT_OUTPUT_LEN,
-                num_samples=max_samples_needed,
-                cache_dir=out_dir / "datasets",
-            )
+            try:
+                tp_datasets[il] = prepare_throughput_dataset(
+                    source_path=dataset_path,
+                    input_len=il,
+                    output_len=THROUGHPUT_OUTPUT_LEN,
+                    num_samples=max_samples_needed,
+                    cache_dir=out_dir / "datasets",
+                )
+            except Exception as _ds_exc:
+                print(f"  WARNING: dataset prep failed for il={il//1024}k: {_ds_exc} — cell will be skipped", flush=True)
+                tp_datasets[il] = None
         else:
             tp_datasets[il] = None
 
@@ -1160,10 +1164,15 @@ def _run_throughput(
             )
 
         # Inner loops: concurrency then input_length (server stays up throughout)
+        server_ok = True   # flipped to False if server dies and cannot be restarted
         for c in sorted(concs):
+            if not server_ok:
+                break
             n_samples   = THROUGHPUT_SAMPLES[c]
             is_serial   = (c == 1)   # c=1 → synchronous / lc_mode; c>1 → concurrent
             for il in THROUGHPUT_INPUT_LENGTHS:
+                if not server_ok:
+                    break
                 il_label  = f"{il // 1024}k"
                 cell_name = f"{cfg.name}_c{c}_il{il_label}"
                 checkpoint = out_dir / f"{cell_name}_benchmarks.json"
@@ -1186,32 +1195,88 @@ def _run_throughput(
                     flush=True,
                 )
 
-                result = run_guidellm(
-                    cfg,
-                    il,                          # input tokens
-                    THROUGHPUT_OUTPUT_LEN,       # output tokens
-                    c,                           # concurrency / rate
-                    n_samples,                   # num_prompts
-                    log_dir / f"{cell_name}_bench.log",
-                    sweep=False,
-                    dataset_path=tp_datasets.get(il),
-                    data_samples=n_samples,
-                    lc_mode=is_serial,
-                    max_seconds=THROUGHPUT_MAX_SECONDS,
-                    num_requests_override=n_samples,
-                )
+                result = None
+                try:
+                    result = run_guidellm(
+                        cfg,
+                        il,                          # input tokens
+                        THROUGHPUT_OUTPUT_LEN,       # output tokens
+                        c,                           # concurrency / rate
+                        n_samples,                   # num_prompts
+                        log_dir / f"{cell_name}_bench.log",
+                        sweep=False,
+                        dataset_path=tp_datasets.get(il),
+                        data_samples=n_samples,
+                        lc_mode=is_serial,
+                        max_seconds=THROUGHPUT_MAX_SECONDS,
+                        num_requests_override=n_samples,
+                    )
+                except Exception as _cell_exc:
+                    print(f"  ✗  {cell_name} raised unexpected error: {_cell_exc}", flush=True)
+
                 if result is not None:
                     saved = copy_results(cell_name, out_dir, log_dir / ".guidellm_out")
                     print(f"  ✓  {cell_name} → {', '.join(saved)}", flush=True)
                     succeeded.append((cfg.name, c, il))
                 else:
-                    print(f"  ✗  {cell_name} failed", flush=True)
+                    print(f"  ✗  {cell_name} failed — checking server health …", flush=True)
                     failed.append((cell_name, "guidellm run failed"))
 
-                # Rebuild dashboard incrementally after every completed cell
+                    # Check whether the vLLM server process is still alive.
+                    # If it died (OOM, XPU driver fault, etc.) we must restart it
+                    # before attempting the next cell, otherwise the next call will
+                    # hang until THROUGHPUT_MAX_SECONDS expires.
+                    server_died = (
+                        current_server_proc is not None
+                        and current_server_proc.poll() is not None
+                    )
+                    if server_died:
+                        print(
+                            f"  Server process exited (code {current_server_proc.returncode})"
+                            " — attempting restart …",
+                            flush=True,
+                        )
+                        stop_server(current_server_proc)
+                        current_server_proc = None
+                        _current_server_proc = None
+                        proc_new = start_server(
+                            cfg, THROUGHPUT_MAX_MODEL_LEN, _server_log,
+                            max_num_batched_tokens=THROUGHPUT_MAX_NUM_BATCHED_TOKENS,
+                        )
+                        _current_server_proc = proc_new
+                        try:
+                            ready_new = wait_for_server(
+                                timeout_startup, log_path=_server_log, proc=proc_new
+                            )
+                        except XpuKernelHangError as _hang:
+                            print(f"  FATAL: {_hang}", flush=True)
+                            stop_server(proc_new)
+                            sys.exit(42)
+                        if ready_new:
+                            write_server_status(
+                                cfg, THROUGHPUT_MAX_MODEL_LEN, proc_new.pid, _server_log
+                            )
+                            current_server_proc = proc_new
+                            _current_server_proc = proc_new
+                            print("  Server restarted successfully — continuing.", flush=True)
+                        else:
+                            stop_server(proc_new)
+                            current_server_proc = None
+                            _current_server_proc = None
+                            print(
+                                "  Server restart failed — skipping remaining cells "
+                                f"for {cfg.name}.",
+                                flush=True,
+                            )
+                            server_ok = False  # break out of both inner loops
+
+                # Rebuild dashboard incrementally after every cell (success or fail)
                 cfg_names_done = sorted({s[0] for s in succeeded})
                 if cfg_names_done:
-                    build_throughput_dashboard_html(out_dir, cfg_names_done)
+                    try:
+                        build_throughput_dashboard_html(out_dir, cfg_names_done)
+                    except Exception as _dash_exc:
+                        print(f"  (dashboard rebuild failed: {_dash_exc})", flush=True)
 
     # ── Final summary ────────────────────────────────────────────────────────
     total_elapsed = time.time() - run_start
