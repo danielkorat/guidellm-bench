@@ -159,27 +159,32 @@ Results directory: `throughput_results/YYYYMMDD_HHMM/`
 
 Per-cell rough estimates (gpt-oss-20b tp=8, BF16/MXFP4):
 
+> **Actuals from first cell (c=1, il=16k)**: generation ~32.7 tok/s → ~8.4 min/req
+> (TTFT for 16k input: ~18s at 930 tok/s prefill throughput — negligible vs generation time)
+
 | Cell | Time estimate |
 |---|---|
-| c=1, il=16k, 10 req | ~15 min (1.5 min/req TTFT+gen) |
-| c=1, il=96k, 10 req | ~80 min (8 min/req) |
-| c=16, any il, 32 req | ~8 min (aggregate throughput) |
-| c=64, any il, 128 req | ~20 min |
-| c=128, any il, 256 req | ~40 min |
+| c=1, il=16k, 10 req | ~87 min (8.4 min/req gen + ~3 min TTFT overhead) |
+| c=1, il=32k, 10 req | ~91 min (8.4 min gen + ~35s TTFT each) |
+| c=1, il=48k, 10 req | ~96 min (8.4 min gen + ~53s TTFT each) |
+| c=1, il=96k, 10 req | ~102 min (8.4 min gen + ~106s TTFT each) |
+| c=16, any il, 32 req | ~12 min (GPU better utilised at concurrency) |
+| c=64, any il, 128 req | ~30 min |
+| c=128, any il, 256 req | ~60 min |
 
 **Server A total (all 4×c, 4×il)**:
-- c=1: ~(15+25+45+80) = 165 min
-- c=16: ~4×8 = 32 min
-- c=64: ~4×20 = 80 min
-- c=128: ~4×40 = 160 min
-- **Server A subtotal: ~7.3 hours**
+- c=1: ~(87+91+96+102) = 376 min ≈ 6.3 hours
+- c=16: ~4×12 = 48 min
+- c=64: ~4×30 = 120 min
+- c=128: ~4×60 = 240 min
+- **Server A subtotal: ~13.7 hours**
 
 **Server B total (c=16,64,128 only — no c=1)**:
-- ~(32+80+160) = 272 min = **~4.5 hours**
+- ~(48+120+240) = 408 min ≈ **~6.8 hours**
 
 **2 server restarts**: ~4 min total
 
-**Total ETA: ~12 hours**  ±4 hours depending on actual XPU throughput and KV-cache pressure at 96k context.
+**Total ETA: ~20 hours**  ±4 hours depending on XPU throughput scaling at higher concurrency and KV-cache pressure at 96k context.
 
 ---
 

@@ -141,6 +141,18 @@ if not os.path.exists("/.dockerenv"):
         _val = os.environ.get(_var)
         if _val:
             _proxy_args += ["-e", f"{_var}={_val}"]
+    # Auto-start container if stopped (e.g. after host reboot — no --restart policy).
+    _state = subprocess.run(
+        ["docker", "inspect", "--format", "{{.State.Running}}", "lsv-container"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    if _state != "true":
+        print("[bench] lsv-container is not running — starting it...", flush=True)
+        _start_rc = subprocess.call(["docker", "start", "lsv-container"])
+        if _start_rc != 0:
+            print("[bench] ERROR: failed to start lsv-container", flush=True)
+            sys.exit(1)
+        time.sleep(3)  # let container initialise
     _cmd = (["docker", "exec", "-w", "/root/guidellm-bench"]
             + _tty + _proxy_args
             + ["lsv-container", "python3", "/root/guidellm-bench/bench.py"]
@@ -651,3 +663,4 @@ Mistakes that happened once and must not repeat:
 | 36 | Ablation PC config showed ~40% TTFT reduction at lc_2k/lc_4k/lc_8k — appeared to be a real prefix-caching benefit, but the prompts are all unique (no shared system prefix). | **Benchmark design artifact.** `prepare_long_context_datasets()` used `eligible[:N]` for every target length. Because the same long source articles qualify for ALL shorter lengths, 4-5/5 documents reappeared across consecutive LC slices (truncated from position 0). Running lc_1k→lc_2k→lc_4k→lc_8k in order with PC enabled seeds the KV cache for each subsequent run (4/5 shared docs × 50% token overlap = 40% effective TTFT reduction — exactly matching observed data). **Fix applied**: `prepare_long_context_datasets()` now maintains a `used_keys` set across target lengths processed in ascending order, ensuring each source document is assigned to at most one LC slice. Output files renamed to `*_v2.jsonl` to force cache invalidation. Verified with `verify_pc.py` (all 4 LC lengths ✓ CONFIRMED). **Rule**: any LC benchmark comparing configs with PC enabled/disabled MUST use non-overlapping document sets across target lengths. |
 | 37 | Resumed an ablation run (`--resume`) after applying the `dataset.py` fix mid-run. The baseline config was already complete (from the original contaminated run) and was skipped by resume logic. Non-baseline configs ran with the new v2 non-overlapping datasets. The resulting dashboard **silently mixed** contaminated baseline data with clean non-baseline data — an invalid comparison that is harder to detect than obvious failure. | After ANY dataset-layer fix (rename, logic change, bug fix), **do NOT resume** existing runs. Always start a completely fresh ablation run so every config uses the same corrected dataset. Old result directories with mixed-generation data must not be used for cross-config comparison. |
 | 38 | The old ablation throughput tab ran a flat single-benchmark (no LC lengths, bar charts only, 4 configs) and called `_generate_conclusions(lc_data, throughput_data=throughput_data)` BEFORE the `throughput_data` dict was loaded — so EP insight notes always showed "n/a". | (1) Replace flat throughput benchmark with C=16 PHASE: 8 configs × 4 LC lengths → line charts (same structure as c=1 Overview tab) + 8k snapshot bars. (2) Always load `c16_data` **before** calling `_generate_conclusions()`. Files named `{cfg_name}_c16_lc{N}k_benchmarks.json`. Constants: `ABLATION_C16_CONCURRENCY=16`, `ABLATION_C16_SAMPLES=20`. |
+| 39 | After host reboot, `lsv-container` stops (no `--restart always` policy). The host-side re-exec guard called `docker exec lsv-container ...` directly — this fails silently with "container is not running", PID exits with non-zero code, stdout was `/dev/null`, and no log was ever created. | The re-exec guard now checks `docker inspect --format {{.State.Running}} lsv-container` first; if not `true`, runs `docker start lsv-container` + `time.sleep(3)` before the `docker exec`. No manual `docker start` required after a reboot. |

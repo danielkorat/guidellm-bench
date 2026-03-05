@@ -34,6 +34,20 @@ if not os.path.exists("/.dockerenv"):
         _val = os.environ.get(_var)
         if _val:
             _proxy_args += ["-e", f"{_var}={_val}"]
+    # Ensure container is running (it stops after host reboot with no --restart policy).
+    _state = subprocess.run(
+        ["docker", "inspect", "--format", "{{.State.Running}}", "lsv-container"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    if _state != "true":
+        print("[bench] lsv-container is not running — starting it...", flush=True)
+        _start_rc = subprocess.call(["docker", "start", "lsv-container"])
+        if _start_rc != 0:
+            print("[bench] ERROR: failed to start lsv-container", flush=True)
+            sys.exit(1)
+        # Give container a moment to fully initialise before exec-ing into it.
+        time.sleep(3)
+
     _cmd = (
         ["docker", "exec", "-w", "/root/guidellm-bench"]
         + _tty

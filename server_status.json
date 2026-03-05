@@ -1,0 +1,15 @@
+{
+  "model": "openai/gpt-oss-20b",
+  "tp": 8,
+  "quant": null,
+  "eager": true,
+  "expert_parallel_size": null,
+  "speculative_config": null,
+  "async_scheduling": true,
+  "prefix_caching": false,
+  "max_model_len": 131072,
+  "port": 8000,
+  "pid": 164,
+  "log_path": "throughput_results/20260305_1512/logs/openai_gpt-oss-20b_tp8_quant-none-async_server.log",
+  "status": "ready"
+}
