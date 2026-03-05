@@ -222,6 +222,14 @@ def prepare_long_context_datasets(
     Reads *source_path* (a JSONL with 'prompt' column), filters prompts long
     enough for each target, truncates, and writes separate JSONL files.
 
+    IMPORTANT — non-overlapping document sets:
+        Each LC target length gets a DISJOINT set of source documents.  This
+        prevents cross-run KV-cache seeding: if the same document appears in
+        both lc_2k and lc_4k (truncated from position 0), running lc_2k before
+        lc_4k on a vLLM server with prefix caching enabled would pre-populate
+        the cache and artificially reduce lc_4k TTFT by ~40%.  By assigning
+        each source document to at most one LC target, that artifact is avoided.
+
     Args:
         source_path:   Path to source JSONL (must have 'prompt' column).
         token_lengths: Target input lengths in tokens.
@@ -251,38 +259,61 @@ def prepare_long_context_datasets(
         return {k: None for k in token_lengths}
 
     results: Dict[int, Optional[str]] = {}
-    for tlen in token_lengths:
+
+    # Process lengths in ASCENDING order so shorter targets claim their docs first.
+    # used_keys tracks the first 200 chars of every prompt already assigned to a
+    # shorter LC target.  This prevents the same source document from appearing in
+    # two different LC slices (which would cause cross-run KV-cache hits).
+    used_keys: set[str] = set()
+
+    for tlen in sorted(token_lengths):
         label = f"{tlen // 1024}k" if tlen >= 1024 else str(tlen)
-        # Determine the source basename for a stable cache filename
         src_stem = Path(source_path).stem
-        out_path = cache_dir / f"lc_{src_stem}_{label}.jsonl"
+        # _v2 suffix: non-overlapping document assignment (v1 = overlapping, obsolete).
+        # Changing the suffix forces regeneration of any old cached files.
+        out_path = cache_dir / f"lc_{src_stem}_{label}_v2.jsonl"
 
         if out_path.exists():
-            # Validate cached file has enough samples; discard if not.
+            # Validate cached file has enough samples; load its prompts into
+            # used_keys so subsequent longer targets won't reuse the same docs.
+            cached_prompts: List[str] = []
             with open(out_path) as _f:
-                cached_count = sum(1 for _ in _f)
-            if cached_count >= num_samples:
-                print(f"  Long-context dataset lc_{label}: using cached {out_path} ({cached_count} samples)", flush=True)
+                for _line in _f:
+                    _line = _line.strip()
+                    if _line:
+                        _row = json.loads(_line)
+                        if _row.get("prompt"):
+                            cached_prompts.append(_row["prompt"])
+            if len(cached_prompts) >= num_samples:
+                used_keys.update(p[:200] for p in cached_prompts)
+                print(f"  Long-context dataset lc_{label}: using cached {out_path} ({len(cached_prompts)} samples)", flush=True)
                 results[tlen] = str(out_path)
                 continue
             else:
-                print(f"  Long-context dataset lc_{label}: cached file has only {cached_count}/{num_samples} samples — regenerating", flush=True)
+                print(f"  Long-context dataset lc_{label}: cached file has only {len(cached_prompts)}/{num_samples} samples — regenerating", flush=True)
                 out_path.unlink()
 
-        # Filter and truncate
+        # Filter: long enough AND not already used by a shorter LC target.
         min_words = int(tlen * _WORDS_PER_TOKEN * 0.5)  # at least 50% of target length
-        eligible = [t for t in source_rows if len(t.split()) >= min_words]
+        eligible = [
+            t for t in source_rows
+            if len(t.split()) >= min_words and t[:200] not in used_keys
+        ]
 
         if len(eligible) < num_samples:
             print(
-                f"  WARNING: Not enough prompts for lc_{label} "
-                f"(need {num_samples}, found {len(eligible)} with ≥{min_words} words in {len(source_rows)} rows) — skipping",
+                f"  WARNING: Not enough non-overlapping prompts for lc_{label} "
+                f"(need {num_samples}, found {len(eligible)} with ≥{min_words} words "
+                f"not already used by shorter LC targets, from {len(source_rows)} rows) — skipping",
                 flush=True,
             )
             results[tlen] = None
             continue
 
         selected = eligible[:num_samples]
+        # Reserve these documents for this target length only.
+        used_keys.update(t[:200] for t in selected)
+
         written = 0
         with open(out_path, "w") as f:
             for text in selected:
@@ -292,7 +323,7 @@ def prepare_long_context_datasets(
                 written += 1
 
         print(
-            f"  Long-context dataset lc_{label}: {written} samples → {out_path}",
+            f"  Long-context dataset lc_{label}: {written} non-overlapping samples → {out_path}",
             flush=True,
         )
         results[tlen] = str(out_path)

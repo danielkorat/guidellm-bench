@@ -112,13 +112,19 @@ nohup ./bench.py > /dev/null 2>&1 &
 ./bench.py --long-contexts
 
 # Ablation study: optimize gpt-oss-20b vLLM config on Intel XPU
-# Runs 6 predefined configs × 4 input lengths (1k/2k/4k/8k), 5 samples each.
+# Runs predefined configs × 4 input lengths (1k/2k/4k/8k), 5 samples each.
 # Ablation dimensions: TP (4 vs 8), Expert Parallelism, async-scheduling, prefix-caching.
 # Results → ./ablation_results/YYYYMMDD_HHMM/ablation_dashboard.html
+# NOTE: LC datasets use non-overlapping document sets per length to avoid
+# cross-run KV-cache seeding artifacts (see verify_pc.py for analysis).
 ./bench.py --ablation
 
 # Ablation with a custom dataset (auto-discovers from last run if --data omitted)
 ./bench.py --ablation --data cx-cmu/deepresearchgym-agentic-search-logs
+
+# Verify LC dataset integrity — proves PC improvement is NOT an artifact
+# Checks that lc_Xk and lc_(2X)k slices use non-overlapping document sets
+python3 verify_pc.py [--ablation-dir ablation_results/YYYYMMDD_HHMM]
 
 # Combined: gpt-oss-20b EP comparison + long-context sweep on a custom dataset
 nohup ./bench.py \

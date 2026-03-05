@@ -1,0 +1,30 @@
+verify_pc.py — Prefix Cache Hypothesis Verification
+Ablation dir: /root/guidellm-bench/ablation_results/20260304_1428
+
+VERDICT: The PC improvement is an ARTIFACT of benchmark design.
+
+Root cause: prepare_long_context_datasets() selects eligible[:N]
+for every target length. Because longer sources qualify for ALL
+shorter lengths too, many documents appear in multiple LC slices
+(each truncated from position 0). Running lc_1k → lc_2k → lc_4k
+→ lc_8k in ascending order on the same vLLM server seeds the KV
+cache for each subsequent run:
+
+  lc_1k  → 4/5 docs re-appear in lc_2k  → 40% predicted, 40% obs.
+  lc_2k  → 4/5 docs re-appear in lc_4k  → 40% predicted, 40% obs.
+  lc_4k  → 5/5 docs re-appear in lc_8k  → 50% predicted, 39% obs.
+
+Prefix caching has NO benefit for workloads with unique, non-shared
+prompts. The ablation PC result MUST NOT be used to justify enabling
+prefix caching in production for such workloads.
+
+FIX (already applied): prepare_long_context_datasets() now uses
+non-overlapping document subsets per LC target via a used_keys set.
+Output files renamed *_v2.jsonl to force cache invalidation.
+Re-run the ablation to get uncontaminated PC numbers.
+
+Per-length data:
+  lc_1k: predicted=0.0%  observed=5.1%  ✓ CONFIRMED
+  lc_2k: predicted=40.0%  observed=39.7%  ✓ CONFIRMED
+  lc_4k: predicted=40.0%  observed=39.5%  ✓ CONFIRMED
+  lc_8k: predicted=50.0%  observed=39.1%  ✓ CONFIRMED

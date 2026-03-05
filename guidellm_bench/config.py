@@ -135,18 +135,25 @@ def get_ablation_configs() -> list:
         Config(model="openai/gpt-oss-20b", tp=8, quant=None, eager=True,
                prefix_caching=True, async_scheduling=True),
 
-        # 9. Eagle3 speculative decoding (tp=4): DISABLED — XPU hardware limit
-        #    sample_recovered_tokens_kernel requires 292KB PTSS; XPU max is 256KB.
-        #    ZE_RESULT_ERROR_MODULE_BUILD_FAILURE on intel/llm-scaler-vllm:0.14.0-b8.
-        #    Kept commented out for reference; do not re-enable without driver upgrade.
-        # Config(model="openai/gpt-oss-20b", tp=4, quant=None, eager=True,
-        #        speculative_config=EAGLE3_20B_SPECULATIVE_CONFIG),
+        # 9. Eagle3 speculative decoding (tp=4)
+        #    PATCHED: sample_recovered_tokens_kernel chunked-vocab fix applied to
+        #    /usr/local/lib/python3.12/dist-packages/vllm/v1/sample/rejection_sampler.py
+        #    inside the container (BLOCK_VOCAB=4096 tiles instead of full 262144-element
+        #    arange → ≤64KB PTSS per work-item, under the XPU 256KB limit).
+        #    Draft model: RedHatAI/gpt-oss-20b-speculator.eagle3, 3 speculative tokens.
+        Config(model="openai/gpt-oss-20b", tp=4, quant=None, eager=True,
+               speculative_config=EAGLE3_20B_SPECULATIVE_CONFIG),
     ]
 
 
 # LC input-length sweep for the ablation study (shorter than full LC run)
 # 1k / 2k / 4k / 8k — 16k is excluded to keep total run time manageable
 ABLATION_LC_LENGTHS: list = [1024, 2048, 4096, 8192]
+
+# C=16 phase: top-5 + EP + Eagle3 configs benchmarked at concurrency=16,
+# same 4 LC input lengths as the c=1 study. Shows which config wins at scale.
+ABLATION_C16_CONCURRENCY: int = 16
+ABLATION_C16_SAMPLES: int = 20      # samples per length (20 sustains c=16 with warmup/cooldown)
 
 
 # ---------------------------------------------------------------------------

@@ -22,6 +22,7 @@ Benchmarking tool (`bench.py` entry point + `guidellm_bench/` package) that runs
 │   ├── dataset.py                # AIME 2024 + generic HF dataset download; long-context slicing
 │   ├── benchmark.py              # run_guidellm() (+ lc_mode) and copy_results()
 │   └── dashboard.py              # build_dashboard_html() and write_serve_script()
+├── verify_pc.py                  # Verify PC artifact: confirms LC dataset cross-run KV-cache seeding
 ├── results/                      # Created at runtime (full runs) — gitignored
 │   └── YYYYMMDD_HHMM/
 │       ├── {cfg_name}_benchmarks.json
@@ -30,6 +31,15 @@ Benchmarking tool (`bench.py` entry point + `guidellm_bench/` package) that runs
 │       ├── dashboard.html
 │       ├── serve_dashboard.sh
 │       ├── datasets/                           # cached JSONL files for this run
+│       └── logs/
+├── ablation_results/             # Created at runtime (--ablation runs) — gitignored
+│   └── YYYYMMDD_HHMM/
+│       ├── ablation_dashboard.html
+│       ├── serve_ablation_dashboard.sh
+│       ├── {cfg_name}_lc{N}k_benchmarks.json  # one per config × LC length
+│       ├── datasets/                           # lc_*_v2_{N}k.jsonl — non-overlapping subsets
+│       ├── bench.log
+│       ├── bench.pid
 │       └── logs/
 └── sanity_results/               # Created at runtime (—sanity runs) — gitignored
 ```
@@ -458,21 +468,45 @@ bash results/YYYYMMDD_HHMM/serve_dashboard.sh
 ---
 
 ### 31. Ablation Mode (`--ablation`)
-**RULE**: `--ablation` is a focused LC-only study for `gpt-oss-20b` Intel XPU optimization.
-- Results → `./ablation_results/YYYYMMDD_HHMM/` (separate from `./results/`)
+**RULE**: `--ablation` is a focused study for `gpt-oss-20b` Intel XPU optimization, split into two phases:
+
+#### Phase 1 — c=1 (latency/quality, all 9 configs × 4 LC lengths)
+- 5 samples per length (synchronous profile), 512 output tokens
 - Input lengths: `[1024, 2048, 4096, 8192]` (`ABLATION_LC_LENGTHS` in `config.py`)
-- 5 samples per length, 512 output tokens
-- 6 predefined configs from `get_ablation_configs()` in `config.py`:
+- Results saved as: `{cfg_name}_lc{N}k_benchmarks.json`
+- 9 predefined configs from `get_ablation_configs()` in `config.py`:
   1. Baseline: `tp=4, quant=None, eager=True` (MXFP4 native, Intel defaults)
   2. +EP: `tp=4, expert_parallel_size=4` (`--enable-expert-parallel`)
   3. +TP8: `tp=8` (wider tensor parallelism)
   4. +TP8+EP: `tp=8, expert_parallel_size=8`
   5. +Async: `tp=4, async_scheduling=True` (`--async-scheduling`, Intel 0.14.1-xpu)
-  6. +PC: `tp=4, prefix_caching=True` (enables KV-cache reuse, removes `--no-enable-prefix-caching`)
+  6. +PC: `tp=4, prefix_caching=True` (KV-cache reuse, removes `--no-enable-prefix-caching`)
+  7. +TP2: `tp=2, max_model_len_override=8192` (memory-constrained, LC capped at 4k)
+  8. +Async+PC: `tp=4, async_scheduling=True, prefix_caching=True` (combined best)
+  9. +TP8+Async+PC: `tp=8, async_scheduling=True, prefix_caching=True`
+  10. +Eagle3: `tp=4, speculative_config=EAGLE3_20B_SPECULATIVE_CONFIG`
+
+#### Phase 2 — c=16 (throughput scale, top-5 + EP + Eagle3, same 4 LC lengths)
+- 20 samples per length (concurrent profile, `--profile concurrent --rate 16`), 512 output tokens
+- Constants: `ABLATION_C16_CONCURRENCY=16`, `ABLATION_C16_SAMPLES=20` in `config.py`
+- Results saved as: `{cfg_name}_c16_lc{N}k_benchmarks.json`
+- Config selection (`_is_c16_config()` in `bench.py`):
+  - ✅ All EP configs (`expert_parallel_size` set)
+  - ✅ Eagle3 (`speculative_config` set)
+  - ✅ Top-5 non-EP: baseline(tp4), tp8, async(tp4), asyncpc(tp4), tp8+asyncpc
+  - ❌ tp2 (`max_model_len_override` set — memory constraint at c=16)
+- **Ordering fix**: c16 data is loaded BEFORE `_generate_conclusions()` is called — so the EP/c16 insight cards in the Conclusions tab correctly read c16 metrics (old code had this backwards)
+
+#### Dashboard tabs
+- **Overview** (existing): 4 LC line charts for all c=1 configs
+- **&#9889; Throughput (c=16)** (NEW): 4 LC line charts + 8k snapshot bar charts for c=16 configs
+- **Conclusions** (merged): c=1 tuning insights + c=16 EP/throughput insights side-by-side
+
+#### Other rules
+- Results → `./ablation_results/YYYYMMDD_HHMM/` (separate from `./results/`)
 - Dataset: `--data` if provided, else auto-discovered from `./results/*/datasets/*.jsonl`, else AIME 2024
 - `_run_ablation()` in `bench.py` handles the loop; `build_ablation_dashboard_html()` in `dashboard.py` builds the output
-- Dashboard: `ablation_dashboard.html` with 4 LC lineplots (TTFT/ITL/req/s/tok/s vs input tokens) + auto-generated "Conclusions" tab
-- `--ablation` and `--resume` are compatible (LC checkpoint files already present are skipped)
+- `--ablation` and `--resume` are compatible (c1 and c16 checkpoint files both checked for resume skipping)
 - `--ablation` is **not** combinable with `--sanity`, `--ep`, `--ep-compare` (uses its own config matrix)
 
 ### 32. New Config Fields: `async_scheduling` and `prefix_caching`
@@ -506,7 +540,7 @@ Cached to `out_dir/datasets/{safe_name}_{split}_v1.jsonl`. Output: `{prompt, out
 - **Mutually exclusive** with `--ep` — validated at startup with `sys.exit()`.
 - Both `_EP_VARIANTS` list and the dedup loop live in `bench.py::main()` (not `config.py`).
 
-**Last Updated**: March 3, 2026 — Added --ablation mode, async_scheduling + prefix_caching Config fields, get_ablation_configs(), build_ablation_dashboard_html(), _run_ablation() in bench.py, _find_last_run_dataset(); updated server.py build_vllm_cmd() for new fields
+**Last Updated**: March 6, 2026 — Added C=16 PHASE to ablation study: top-5+EP+Eagle3 configs × 4 LC lengths at concurrency=16; new "Throughput (c=16)" tab in ablation dashboard with line charts + 8k snapshot bars; merged c16 insights into Conclusions; fixed ordering bug (c16_data now loaded before `_generate_conclusions()` call); updated Rule 31 to document both c=1 and c=16 phases
 **Primary Maintainer**: Daniel Korat, Intel
 
 ---
@@ -552,3 +586,6 @@ Mistakes that happened once and must not repeat:
 | 32 | `--ablation` without `--data` used AIME (30 short math problems) instead of the arxiv-summarization dataset from the last run — all LC slices skipped (0 prompts ≥ min word count). | `main()` unconditionally called `prepare_aime_dataset()` before reaching the ablation branch, so `dataset_path` was never `None` and `_run_ablation`'s `_find_last_run_dataset()` discovery was dead code. Fix: skip AIME pre-load when `--ablation` is set and no `--data` given (`dataset_path = None`), letting `_run_ablation` auto-discover from `./results/*/datasets/`. |
 | 34 | When `--resume`ing an ablation run on a freshly started machine, Worker_TP2 OOMed during model load of the first new config (`tp4+async-pc`) even though not all GPUs were used by the previous config (`tp2`). Process exit as seen by `pgrep` ≠ VRAM released by XPU driver. | Added a mandatory `time.sleep(10)` at the end of `stop_server()` before printing "Server stopped." — gives the XPU driver time to drain VRAM after the process exits. The 45s graceful wait already ensures the process is gone; the extra 10s drain is for the firmware MMU-unpin. |
 | 35 | `build_ablation_dashboard_html(out_dir, succeeded)` produced N/A in the recommendation/conclusions panel when the baseline config (`tp4_quant-none`) had a server startup failure in the current run (even though its LC JSON files existed from a prior run). `lc_data` was built only from `succeeded`, so baseline was missing → `at_len(baseline, ...)` returned None everywhere. | Fixed in `build_ablation_dashboard_html`: scan `out_dir` for all existing `*_lc*_benchmarks.json` files and merge with `succeeded`. Any config whose data is on disk is included regardless of whether it's in `succeeded`. |
+| 36 | Ablation PC config showed ~40% TTFT reduction at lc_2k/lc_4k/lc_8k — appeared to be a real prefix-caching benefit, but the prompts are all unique (no shared system prefix). | **Benchmark design artifact.** `prepare_long_context_datasets()` used `eligible[:N]` for every target length. Because the same long source articles qualify for ALL shorter lengths, 4-5/5 documents reappeared across consecutive LC slices (truncated from position 0). Running lc_1k→lc_2k→lc_4k→lc_8k in order with PC enabled seeds the KV cache for each subsequent run (4/5 shared docs × 50% token overlap = 40% effective TTFT reduction — exactly matching observed data). **Fix applied**: `prepare_long_context_datasets()` now maintains a `used_keys` set across target lengths processed in ascending order, ensuring each source document is assigned to at most one LC slice. Output files renamed to `*_v2.jsonl` to force cache invalidation. Verified with `verify_pc.py` (all 4 LC lengths ✓ CONFIRMED). **Rule**: any LC benchmark comparing configs with PC enabled/disabled MUST use non-overlapping document sets across target lengths. |
+| 37 | Resumed an ablation run (`--resume`) after applying the `dataset.py` fix mid-run. The baseline config was already complete (from the original contaminated run) and was skipped by resume logic. Non-baseline configs ran with the new v2 non-overlapping datasets. The resulting dashboard **silently mixed** contaminated baseline data with clean non-baseline data — an invalid comparison that is harder to detect than obvious failure. | After ANY dataset-layer fix (rename, logic change, bug fix), **do NOT resume** existing runs. Always start a completely fresh ablation run so every config uses the same corrected dataset. Old result directories with mixed-generation data must not be used for cross-config comparison. |
+| 38 | The old ablation throughput tab ran a flat single-benchmark (no LC lengths, bar charts only, 4 configs) and called `_generate_conclusions(lc_data, throughput_data=throughput_data)` BEFORE the `throughput_data` dict was loaded — so EP insight notes always showed "n/a". | (1) Replace flat throughput benchmark with C=16 PHASE: 8 configs × 4 LC lengths → line charts (same structure as c=1 Overview tab) + 8k snapshot bars. (2) Always load `c16_data` **before** calling `_generate_conclusions()`. Files named `{cfg_name}_c16_lc{N}k_benchmarks.json`. Constants: `ABLATION_C16_CONCURRENCY=16`, `ABLATION_C16_SAMPLES=20`. |

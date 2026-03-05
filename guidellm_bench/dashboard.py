@@ -11,6 +11,12 @@ try:
 except ImportError:
     DOCKER_IMAGE = "intel/llm-scaler-vllm:0.14.0-b8"
 
+try:
+    from .config import ABLATION_C16_CONCURRENCY, ABLATION_LC_LENGTHS
+except ImportError:
+    ABLATION_C16_CONCURRENCY = 16
+    ABLATION_LC_LENGTHS = [1024, 2048, 4096, 8192]
+
 
 def _load_vllm_cmd(out_dir: Path, cfg_name: str) -> Optional[str]:
     """Return the saved ``vllm serve …`` command string for *cfg_name*, or None.
@@ -260,6 +266,65 @@ def _extract_lc_metrics(data: dict) -> Dict[str, Optional[float]]:
         "throughput_rps": rps,
         "throughput_tps": med("output_tokens_per_second"),
     }
+
+
+def _load_c16_lc_points(out_dir: Path, cfg_name: str) -> Dict[int, Dict[str, Optional[float]]]:
+    """Return {token_len: {metric: value}} for c=16 LC slices of *cfg_name*.
+
+    Looks for files named ``{cfg_name}_c16_lc{N}k_benchmarks.json`` in *out_dir*.
+    """
+    lc_points: Dict[int, Dict[str, Optional[float]]] = {}
+    for fpath in sorted(out_dir.glob(f"{cfg_name}_c16_lc*_benchmarks.json")):
+        import re as _re
+        m = _re.search(r"_c16_lc(\d+k)_benchmarks", fpath.name)
+        if not m:
+            continue
+        k = int(m.group(1)[:-1])
+        token_len = k * 1024
+        try:
+            with open(fpath) as f:
+                data = json.load(f)
+            lc_points[token_len] = _extract_lc_metrics(data)
+        except Exception:
+            lc_points[token_len] = {}
+    return lc_points
+
+
+def _load_throughput_metrics(out_dir: Path, cfg_name: str) -> Optional[Dict[str, Optional[float]]]:
+    """Load throughput metrics from {cfg_name}_throughput_benchmarks.json."""
+    fp = out_dir / f"{cfg_name}_throughput_benchmarks.json"
+    if not fp.exists():
+        return None
+    try:
+        with open(fp) as f:
+            data = json.load(f)
+        benchmarks = data.get("benchmarks", []) if isinstance(data, dict) else data
+        if not benchmarks:
+            return None
+        b = benchmarks[0]
+        reqs = b.get("requests", {}).get("successful", [])
+
+        def med(field: str) -> Optional[float]:
+            return _median([r.get(field) for r in reqs])
+
+        rps_agg = (b.get("metrics", {}).get("requests_per_second", {})
+                     .get("successful", {}).get("median"))
+        tps_agg = (b.get("metrics", {}).get("output_tokens_per_second", {})
+                     .get("successful", {}).get("median"))
+        med_lat = med("request_latency")
+        n_succ = len(reqs)
+        sm = b.get("scheduler_metrics", {})
+        wall_dur = sm.get("measure_end_time", 0) - sm.get("measure_start_time", 0)
+        rps = rps_agg or (1.0 / med_lat if med_lat else n_succ / wall_dur if wall_dur else None)
+        tps = tps_agg or med("output_tokens_per_second")
+        return {
+            "rps":     rps,
+            "tps":     tps,
+            "ttft_ms": med("time_to_first_token_ms"),
+            "itl_ms":  med("inter_token_latency_ms"),
+        }
+    except Exception:
+        return None
 
 
 def _load_lc_points(out_dir: Path, cfg_name: str) -> Dict[int, Dict[str, Optional[float]]]:
@@ -683,7 +748,8 @@ def _ablation_label(name: str) -> str:
     return label
 
 
-def _generate_conclusions(lc_data: Dict[str, Dict[int, Dict[str, Optional[float]]]]) -> str:
+def _generate_conclusions(lc_data: Dict[str, Dict[int, Dict[str, Optional[float]]]],
+                          c16_data: Optional[Dict[str, Dict[int, Dict[str, Optional[float]]]]] = None) -> str:
     """Auto-generate an HTML conclusions panel from ablation LC metric data.
 
     Args:
@@ -717,6 +783,30 @@ def _generate_conclusions(lc_data: Dict[str, Dict[int, Dict[str, Optional[float]
     all_cfgs = list(lc_data.keys())
     if not all_cfgs:
         return "<p class='text-muted'>No data available yet. Run the ablation suite first.</p>"
+
+    # ---- C=16 high-concurrency helpers (filled once c16_data is available) ----
+    c16 = c16_data or {}
+
+    def avg_metric_c16(cfg_name: str, metric: str) -> Optional[float]:
+        vals = [v for metrics in c16.get(cfg_name, {}).values()
+                for k, v in metrics.items() if k == metric and v is not None]
+        return sum(vals) / len(vals) if vals else None
+
+    def avg_at_lens_c16(cfg_name: str, metric: str, lens: list) -> Optional[float]:
+        vals = [v for length in lens
+                for k, v in (c16.get(cfg_name, {}).get(length) or {}).items()
+                if k == metric and v is not None]
+        return sum(vals) / len(vals) if vals else None
+
+    def at_len_c16(cfg_name: str, metric: str, length: int) -> Optional[float]:
+        return (c16.get(cfg_name, {}).get(length) or {}).get(metric)
+
+    # Lengths shared across key c16 configs (4k+8k focus when available)
+    def c16_cfg_lens(cn: Optional[str]) -> set:
+        return set(c16.get(cn, {}).keys()) if cn else set()
+
+    c16_avail = [n for n in [baseline if 'baseline' in dir() else None] if n in c16]  # placeholder
+    # Will be recomputed after baseline/ep4_cfg etc. are defined below
 
     def find_best(metric: str, lower_is_better: bool, token_len: Optional[int] = None,
                   lens: Optional[list] = None) -> Optional[str]:
@@ -770,14 +860,23 @@ def _generate_conclusions(lc_data: Dict[str, Dict[int, Dict[str, Optional[float]
     tp8_cfg       = find_cfg('8')
     tp8ep_cfg     = find_cfg('8', 'ep')
     tp8asyncpc_cfg = find_cfg('8', 'async-pc')   # tp8 + PC + async (alt TTFT cmd)
+    eagle3_cfg    = find_cfg('4', 'eagle3')       # Eagle3 speculative decoding (tp4)
     # tp2 intentionally excluded: max_model_len 8192 limits it to <8k contexts
+
+    # Recompute c16 shared lengths now that config names are known
+    _c16_key_cfgs = [c for c in [baseline, ep4_cfg, tp8_cfg] if c and c in c16]
+    shared_c16_long = sorted(
+        set.intersection(*[c16_cfg_lens(c) for c in _c16_key_cfgs]) if len(_c16_key_cfgs) > 1
+        else c16_cfg_lens(_c16_key_cfgs[0]) if _c16_key_cfgs else set()
+    )
+    c16_focus = [l for l in shared_c16_long if l >= 4096] or shared_c16_long
 
     # Lengths present in all long-context-capable configs (no tp2)
     def cfg_lens(c: Optional[str]) -> set:
         return set(lc_data.get(c, {}).keys()) if c else set()
 
     long_cfgs = [c for c in [baseline, ep4_cfg, async_cfg, pc_cfg, asyncpc_cfg,
-                              tp8_cfg, tp8ep_cfg, tp8asyncpc_cfg] if c]
+                              tp8_cfg, tp8ep_cfg, tp8asyncpc_cfg, eagle3_cfg] if c]
     shared_long = sorted(
         set.intersection(*[cfg_lens(c) for c in long_cfgs]) if len(long_cfgs) > 1
         else cfg_lens(long_cfgs[0]) if long_cfgs else set()
@@ -956,19 +1055,42 @@ req/s, ITL, and tok/s. Choose tp=8 only for latency-critical, non-cacheable work
                            avg_metric_at_lens(tp8_cfg, "throughput_rps", lc_focus), False)
         ttft_d = pct_delta(avg_metric_at_lens(tp8ep_cfg, "ttft_ms", lc_focus),
                            avg_metric_at_lens(tp8_cfg, "ttft_ms", lc_focus), True)
+        # High-concurrency comparison from c=16 phase
+        tp_note = ""
+        if c16 and c16_focus and tp8ep_cfg in c16 and tp8_cfg in c16:
+            ep8_rps = avg_at_lens_c16(tp8ep_cfg, "throughput_rps", c16_focus)
+            tp8_rps = avg_at_lens_c16(tp8_cfg,   "throughput_rps", c16_focus)
+            ep8_tps = avg_at_lens_c16(tp8ep_cfg, "throughput_tps", c16_focus)
+            tp8_tps = avg_at_lens_c16(tp8_cfg,   "throughput_tps", c16_focus)
+            if ep8_rps and tp8_rps:
+                rps_d = pct_delta(ep8_rps, tp8_rps, False)
+                tps_d = pct_delta(ep8_tps, tp8_tps, False)
+                helps = ep8_rps > tp8_rps
+                tp_note = (f"<p><strong>At concurrency=16 (see &#9889; c=16 tab):</strong> "
+                           f"req/s {fmt_pct(rps_d)}, tok/s {fmt_pct(tps_d)}. "
+                           f"{'EP improves throughput &mdash; use when serving many concurrent requests.' if helps else 'Even at c=16, EP routing overhead dominates at tp=8.'}</p>")
         body = f"""
-<p><strong>What it does:</strong> Adds Expert Parallelism (<code>--enable-expert-parallel</code>)
-on top of tp=8. EP routes each token's MoE experts across GPUs in a distributed fashion.</p>
-<p><strong>Effect vs plain tp=8:</strong> req/s {fmt_pct(rps_d)}, TTFT {fmt_pct(ttft_d)}.
-Essentially identical to tp=8 with additional complexity.</p>
-<p><strong>Why it doesn't help:</strong> At tp=8 with 20B parameters, expert shards are already
-small. EP's all-to-all communication overhead offsets any memory savings from distributed experts.</p>
-<p><strong>Conclusion:</strong> <strong>Do not use EP at tp=8.</strong> Same performance as plain
-tp=8, which is already beaten by tp4+PC.</p>
+<p><strong>Architecture:</strong> gpt-oss-20b has <strong>32 MoE experts</strong> with top-4
+routing per token. With EP=8 (tp=8 GPUs), each GPU holds 4 of 32 experts. Every token's 4 active
+experts need to be dispatched to the appropriate GPU via an <strong>all-to-all collective</strong>
+on every forward pass.</p>
+<p><strong>Why EP adds overhead at low concurrency:</strong> With serial LC requests (1 request
+at a time), the all-to-all must cross GPU boundaries for nearly every token. At batch_size≈1,
+the communication overhead is not amortized — each forward pass pays the all-to-all cost with
+minimal compute to offset it. The result: the same or worse latency vs plain tp=8.</p>
+<p><strong>When EP would help:</strong> High-throughput scenarios with many concurrent requests
+simultaneously in-flight (batch_size ≥ 32). With large batches, the all-to-all volume grows
+linearly but the expert compute also scales — expert GPUs can handle many tokens at once,
+spreading the routing overhead over more useful work.</p>
+{tp_note}
+<p><strong>Effect vs plain tp=8 at 4k–8k inputs (LC mode):</strong>
+req/s {fmt_pct(rps_d)}, TTFT {fmt_pct(ttft_d)} — negligible change, slightly worse.</p>
+<p><strong>Conclusion:</strong> <strong>Do not use EP at tp=8 for latency-critical LC workloads.</strong>
+EP is a throughput optimization that requires high-concurrency serving to pay off.</p>
 {delta_table(tp8ep_cfg, lc_focus)}"""
         insight_cards.append(("TP=8 + Expert Parallelism", "🔀", body))
 
-    # --- TP=4+EP insight (worst config) ---
+    # --- TP=4+EP insight (worst config for latency) ---
     if ep4_cfg and baseline and lc_focus:
         rps_d  = pct_delta(avg_metric_at_lens(ep4_cfg, "throughput_rps", lc_focus),
                            avg_metric_at_lens(baseline, "throughput_rps", lc_focus), False)
@@ -976,18 +1098,41 @@ tp=8, which is already beaten by tp4+PC.</p>
                            avg_metric_at_lens(baseline, "ttft_ms", lc_focus), True)
         itl_d  = pct_delta(avg_metric_at_lens(ep4_cfg, "itl_ms", lc_focus),
                            avg_metric_at_lens(baseline, "itl_ms", lc_focus), True)
+        # High-concurrency comparison from c=16 phase
+        tp_note = ""
+        if c16 and c16_focus and ep4_cfg in c16 and baseline in c16:
+            ep4_rps = avg_at_lens_c16(ep4_cfg,  "throughput_rps", c16_focus)
+            bl_rps  = avg_at_lens_c16(baseline, "throughput_rps", c16_focus)
+            ep4_tps = avg_at_lens_c16(ep4_cfg,  "throughput_tps", c16_focus)
+            bl_tps  = avg_at_lens_c16(baseline, "throughput_tps", c16_focus)
+            if ep4_rps and bl_rps:
+                rps_d_c16 = pct_delta(ep4_rps, bl_rps, False)
+                tps_d_c16 = pct_delta(ep4_tps, bl_tps, False)
+                helps = ep4_rps > bl_rps
+                tp_note = (f"<p><strong>At concurrency=16 (see &#9889; c=16 tab):</strong> "
+                           f"req/s {fmt_pct(rps_d_c16)}, tok/s {fmt_pct(tps_d_c16)}. "
+                           f"{'EP shows a throughput gain at c=16 &mdash; use for high-concurrency serving.' if helps else 'EP does not recover even at c=16. All-to-all overhead dominates at tp=4.'}</p>")
         body = f"""
-<p><strong>What it does:</strong> Adds Expert Parallelism to tp=4. Each MoE expert dispatch
-requires an all-to-all GPU communication on top of the existing tp all-reduce.</p>
-<p><strong>Effect at 4k–8k inputs:</strong> req/s {fmt_pct(rps_d)}, TTFT {fmt_pct(ttft_d)},
+<p><strong>Architecture — why EP hurts latency:</strong> gpt-oss-20b has <strong>32 MoE experts,
+top-4 routing per token</strong>. With EP=4 (tp=4 GPUs), each GPU holds 8 of 32 experts. On
+every forward pass, each token must be routed to its 4 active expert GPUs via an
+<strong>all-to-all collective</strong>. At tp=4, the 4 active experts are expected to land on
+all 4 GPUs simultaneously — the <em>worst possible</em> routing topology for communication.</p>
+<p><strong>Low-concurrency makes it worse:</strong> This ablation uses synchronous profiling
+(1 request at a time, 5 samples). At batch_size=1, each decode step has only ~4 tokens in
+the all-to-all — the per-token communication overhead is not amortized over many useful tokens.
+Every single decode step pays full all-to-all latency with near-zero parallel benefit.</p>
+<p><strong>When EP would help:</strong> EP is a <em>throughput</em> optimization for
+high-concurrency serving (batch_size ≥ 32+). With large batches, each GPU processes many
+expert calls simultaneously, and the all-to-all cost amortizes over hundreds of tokens per step.
+See the <strong>⚡ Throughput</strong> tab for the concurrency=16 comparison.</p>
+{tp_note}
+<p><strong>Effect at 4k–8k inputs (LC mode):</strong> req/s {fmt_pct(rps_d)}, TTFT {fmt_pct(ttft_d)},
 ITL {fmt_pct(itl_d)}. <strong>Worst config in the study — all metrics regress vs baseline.</strong></p>
-<p><strong>Why:</strong> At tp=4, the tensor-parallel all-reduce is already the bottleneck.
-EP's all-to-all traffic compounds the communication delay without delivering sufficient memory
-savings to compensate. With only 4 GPUs, per-expert memory is already manageable.</p>
-<p><strong>Conclusion:</strong> <strong>Never use EP at tp=4</strong> for gpt-oss-20b. It is
-strictly worse than the baseline on every metric at long contexts.</p>
+<p><strong>Conclusion:</strong> <strong>Never use EP at tp=4 for low-concurrency LC workloads.</strong>
+EP requires high-concurrency serving with many in-flight requests to amortize all-to-all overhead.</p>
 {delta_table(ep4_cfg, lc_focus)}"""
-        insight_cards.append(("Expert Parallelism at tp=4 ⚠️ Worst config", "❌", body))
+        insight_cards.append(("Expert Parallelism at tp=4 ⚠️ Worst config for Latency", "❌", body))
 
     # --- tp4 + PC + async insight (recommended production command) ---
     if asyncpc_cfg and baseline and lc_focus:
@@ -1150,6 +1295,39 @@ This is the recommended production configuration for 8k–16k context workloads.
   </div>
 </div>"""
 
+    # ---- C=16 winner summary (appended to rec_html when data available) ----
+    c16_rec_html = ""
+    if c16 and c16_focus:
+        c16_scored_rps = {cn: avg_at_lens_c16(cn, "throughput_rps", c16_focus)
+                         for cn in c16 if avg_at_lens_c16(cn, "throughput_rps", c16_focus)}
+        c16_best_rps_cfg = (max(c16_scored_rps, key=c16_scored_rps.__getitem__)
+                           if c16_scored_rps else None)
+        c16_bl_rps = avg_at_lens_c16(baseline, "throughput_rps", c16_focus) if baseline else None
+        _ep_note = ""
+        if ep4_cfg and baseline and ep4_cfg in c16 and baseline in c16:
+            _ep4_rps = avg_at_lens_c16(ep4_cfg,  "throughput_rps", c16_focus)
+            _bl_rps  = avg_at_lens_c16(baseline, "throughput_rps", c16_focus)
+            if _ep4_rps and _bl_rps:
+                _ep_d = pct_delta(_ep4_rps, _bl_rps, False)
+                _verb  = "improves" if _ep4_rps > _bl_rps else "still hurts"
+                _note  = "amortized" if _ep4_rps > _bl_rps else "still dominant"
+                _ep_note = (f"EP (tp4) {_verb} req/s by {abs(_ep_d or 0):.0f}% "
+                            f"at c=16 (all-to-all {_note})")
+        c16_rec_html = f"""
+<div class=\"alert alert-info border-info mt-3\">
+  <strong>&#9889; High-Concurrency (c=16) \u2014 top findings at 4k\u20138k</strong>
+  <ul class=\"mb-0 mt-2\">
+    {'<li><strong>Best req/s at c=16:</strong> <code>' + _ablation_label(c16_best_rps_cfg or '') + '</code> \u2014 '
+      + fmt_pct(pct_delta(c16_scored_rps.get(c16_best_rps_cfg), c16_bl_rps, False))
+      + ' vs tp4 baseline. <em>Recommended for throughput-critical deployments.</em></li>' if c16_best_rps_cfg else ''}
+    {'<li>' + _ep_note + '.</li>' if _ep_note else ''}
+    <li>See the <strong>&#9889; Throughput (c=16)</strong> tab for full TTFT&nbsp;/&nbsp;ITL&nbsp;/&nbsp;Req&#183;s&nbsp;/&nbsp;Tok&#183;s line charts.</li>
+    <li>Key difference vs c=1: async scheduling &amp; EP scale better with load; PC benefit may
+        shrink if concurrent requests share fewer cache-hit prefixes under pressure.</li>
+  </ul>
+</div>"""
+    rec_html += c16_rec_html
+
     # ---- Build insight card accordion ----
     accordion_items = []
     for idx, (title, icon, body_html) in enumerate(insight_cards):
@@ -1246,18 +1424,21 @@ def build_ablation_dashboard_html(
     out_dir: Path,
     succeeded: list[str],
     model_mem_gib: Optional[Dict[str, float]] = None,
+    c16_succeeded: Optional[list[str]] = None,
 ) -> Optional[Path]:
     """Build ablation_dashboard.html targeted at gpt-oss-20b configuration ablation.
 
     Unlike the standard dashboard (concurrency sweep + bars), this dashboard shows:
-    - 4 LC lineplots (TTFT, ITL, req/s, tok/s) vs input tokens, one line per config
+    - c=1  tab: 4 LC lineplots (TTFT, ITL, req/s, tok/s) vs input tokens, all configs
+    - c=16 tab: same 4 line plots for top-5 + EP + Eagle3 at concurrency=16
     - Per-config tabs with LC TTFT detail
-    - Auto-generated "Conclusions" tab with best-config summary and pairwise insights
+    - Auto-generated "Conclusions" tab merging c=1 and c=16 insights
 
     Args:
-        out_dir:       Directory containing ``{name}_lc*_benchmarks.json`` files.
-        succeeded:     Config names that completed at least one LC slice.
+        out_dir:       Directory containing benchmark JSON files.
+        succeeded:     Config names that completed at least one c=1 LC slice.
         model_mem_gib: Optional {cfg.name: per_gpu_weight_gib}.
+        c16_succeeded: Config names that completed c=16 LC slices.
 
     Returns:
         Path to written ablation_dashboard.html, or None if no data.
@@ -1269,6 +1450,8 @@ def build_ablation_dashboard_html(
     # run but whose server startup failed in this invocation (e.g. baseline OOM).
     all_lc_names: set = set(succeeded)
     for fp in sorted(out_dir.glob("*_lc*_benchmarks.json")):
+        if "_c16_lc" in fp.name:
+            continue  # c16 files handled separately
         _m = re.match(r'^(.+?)_lc\d+k_benchmarks\.json$', fp.name)
         if _m:
             all_lc_names.add(_m.group(1))
@@ -1309,7 +1492,109 @@ def build_ablation_dashboard_html(
                 lc_metric_ds[metric_key].append({"label": label, "data": xy, **ds_opts})
 
     ts = _run_timestamp(out_dir)
-    conclusions_html = _generate_conclusions(lc_data)
+
+    # ------------------------------------------------------------------
+    # C=16 data: load {cfg_name}_c16_lc{N}k_benchmarks.json files.
+    # Concurrent profile at concurrency=16, same 4 LC lengths as c=1 study.
+    # Loaded BEFORE calling _generate_conclusions so c16_data is available.
+    # ------------------------------------------------------------------
+    c16_all_names: set = set(c16_succeeded or [])
+    for fp in sorted(out_dir.glob("*_c16_lc*_benchmarks.json")):
+        _mc = re.match(r'^(.+?)_c16_lc\d+k_benchmarks\.json$', fp.name)
+        if _mc:
+            c16_all_names.add(_mc.group(1))
+    c16_load: Dict[str, Dict[int, Dict[str, Optional[float]]]] = {}
+    for name in sorted(c16_all_names):
+        pts = _load_c16_lc_points(out_dir, name)
+        if pts:
+            c16_load[name] = pts
+
+    # Build c16 line chart datasets (one line per config)
+    c16_metric_ds: Dict[str, list] = {key: [] for key, _ in LC_METRICS}
+    for i, (cfg_name, tok_map) in enumerate(c16_load.items()):
+        color = COLORS[i % len(COLORS)]
+        label = _ablation_label(cfg_name)
+        ds_opts = {
+            "borderColor": color, "backgroundColor": color + "55",
+            "tension": 0.3, "spanGaps": True, "pointRadius": 6, "pointHoverRadius": 9,
+        }
+        for metric_key, _ in LC_METRICS:
+            xy = [{"x": tl, "y": m.get(metric_key)}
+                  for tl, m in sorted(tok_map.items())
+                  if m.get(metric_key) is not None]
+            if xy:
+                c16_metric_ds[metric_key].append({"label": label, "data": xy, **ds_opts})
+
+    # 8k snapshot bars for c16
+    c16_names_ord  = list(c16_load.keys())
+    c16_bar_labels = [_ablation_label(n) for n in c16_names_ord]
+    c16_bar_8k: dict = {
+        mk: [(c16_load[n].get(8192) or {}).get(mk) for n in c16_names_ord]
+        for mk, _ in LC_METRICS
+    }
+
+    # Generate conclusions AFTER c16_load is populated (fixes prior ordering bug)
+    conclusions_html = _generate_conclusions(lc_data, c16_data=c16_load if c16_load else None)
+
+    # Build c16 tab HTML -- line charts + 8k snapshot bars at concurrency=16
+    if c16_load:
+        _lens_str = ", ".join(f"{l // 1024}k" for l in ABLATION_LC_LENGTHS)
+        c16_tab_nav = (
+            '<li class="nav-item"><a class="nav-link" data-bs-toggle="tab" '
+            'href="#tab-c16">&#9889; Throughput (c=16)</a></li>'
+        )
+        c16_tab_html = f"""<div class="tab-pane fade" id="tab-c16">
+      <div class="p-2 mb-2 bg-light rounded" style="font-size:.82rem">
+        <strong>Concurrency=16 Study</strong> &mdash; same {len(ABLATION_LC_LENGTHS)} input
+        lengths ({_lens_str}) as the <strong>&#128202; Overview</strong> (c=1), but at
+        concurrency={ABLATION_C16_CONCURRENCY}. Configs: top-5 + EP variants + Eagle3.
+        <em>Compare tabs to see latency-vs-throughput tradeoffs per config flag.</em>
+      </div>
+      <div class="row g-3 mt-1">
+        <div class="col-12"><div class="card shadow-sm border-success"><div class="card-header fw-bold text-success">TTFT (ms) vs Input tokens @ c={ABLATION_C16_CONCURRENCY}</div><div class="card-body"><canvas id="c16-ttft" style="max-height:500px"></canvas></div></div></div>
+        <div class="col-12"><div class="card shadow-sm border-success"><div class="card-header fw-bold text-success">ITL (ms) vs Input tokens @ c={ABLATION_C16_CONCURRENCY}</div><div class="card-body"><canvas id="c16-itl" style="max-height:500px"></canvas></div></div></div>
+        <div class="col-12"><div class="card shadow-sm border-success"><div class="card-header fw-bold text-success">Req/s vs Input tokens @ c={ABLATION_C16_CONCURRENCY}</div><div class="card-body"><canvas id="c16-rps" style="max-height:500px"></canvas></div></div></div>
+        <div class="col-12"><div class="card shadow-sm border-success"><div class="card-header fw-bold text-success">Output tok/s vs Input tokens @ c={ABLATION_C16_CONCURRENCY}</div><div class="card-body"><canvas id="c16-tps" style="max-height:500px"></canvas></div></div></div>
+        <div class="col-12"><hr class="my-2"><h6 class="text-center text-secondary fw-bold" style="font-size:.85rem">&#9660; Snapshot at 8k tokens &mdash; c={ABLATION_C16_CONCURRENCY} absolute values</h6></div>
+        <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">TTFT (ms) at 8k</div><div class="card-body p-2"><canvas id="c16-bar-ttft" style="max-height:340px"></canvas></div></div></div>
+        <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">ITL (ms) at 8k</div><div class="card-body p-2"><canvas id="c16-bar-itl" style="max-height:340px"></canvas></div></div></div>
+        <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">Req/s at 8k</div><div class="card-body p-2"><canvas id="c16-bar-rps" style="max-height:340px"></canvas></div></div></div>
+        <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">Output tok/s at 8k</div><div class="card-body p-2"><canvas id="c16-bar-tps" style="max-height:340px"></canvas></div></div></div>
+      </div>
+    </div>"""
+        c16_js = (
+            f"\n// C=16 line charts (concurrency={ABLATION_C16_CONCURRENCY})\n"
+            f"lcLine('c16-ttft', {json.dumps(c16_metric_ds['ttft_ms'])},        'TTFT (ms)');\n"
+            f"lcLine('c16-itl',  {json.dumps(c16_metric_ds['itl_ms'])},         'ITL (ms)');\n"
+            f"lcLine('c16-rps',  {json.dumps(c16_metric_ds['throughput_rps'])}, 'Req/s');\n"
+            f"lcLine('c16-tps',  {json.dumps(c16_metric_ds['throughput_tps'])}, 'Output tok/s');\n"
+            "// C=16 8k snapshot bars\n"
+            f"(function() {{\n"
+            f"  const PAL = {json.dumps(COLORS)};\n"
+            f"  const labels = {json.dumps(c16_bar_labels)};\n"
+            "  function hbar(id, data, xLabel) {\n"
+            "    const el = document.getElementById(id);\n"
+            "    if (!el) return;\n"
+            "    new Chart(el, {\n"
+            "      type: 'bar',\n"
+            "      data: { labels, datasets: [{ data, label: xLabel,\n"
+            "        backgroundColor: PAL.slice(0, labels.length).map(c => c+'cc'),\n"
+            "        borderColor:     PAL.slice(0, labels.length), borderWidth: 1 }] },\n"
+            "      options: { indexAxis: 'y', plugins: { legend: { display: false } },\n"
+            "                  scales: { x: { beginAtZero: false,\n"
+            "                                 title: { display: true, text: xLabel } } } }\n"
+            "    });\n"
+            "  }\n"
+            f"  hbar('c16-bar-ttft', {json.dumps(c16_bar_8k['ttft_ms'])},        'ms');\n"
+            f"  hbar('c16-bar-itl',  {json.dumps(c16_bar_8k['itl_ms'])},         'ms');\n"
+            f"  hbar('c16-bar-rps',  {json.dumps(c16_bar_8k['throughput_rps'])}, 'req/s');\n"
+            f"  hbar('c16-bar-tps',  {json.dumps(c16_bar_8k['throughput_tps'])}, 'tok/s');\n"
+            "})();\n"
+        )
+    else:
+        c16_tab_nav  = ""
+        c16_tab_html = ""
+        c16_js       = ""
 
     # ------------------------------------------------------------------
     # 8k snapshot bars and % delta vs baseline
@@ -1469,6 +1754,7 @@ def build_ablation_dashboard_html(
   <ul class="nav nav-tabs flex-wrap mb-0" id="mainTabs">
     <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-overview">&#128202; Overview</a></li>
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-conclusions">&#127919; Conclusions</a></li>
+    {c16_tab_nav}
     {config_tabs_nav}
   </ul>
   <div class="tab-content border border-top-0 rounded-bottom bg-white p-3">
@@ -1490,6 +1776,7 @@ def build_ablation_dashboard_html(
     <div class="tab-pane fade" id="tab-conclusions">
       {conclusions_html}
     </div>
+    {c16_tab_html}
     {config_tabs_content}
   </div>
 </div>
@@ -1562,6 +1849,7 @@ lcLine('lc-tps',  {json.dumps(lc_metric_ds['throughput_tps'])}, 'Output tok/s');
     }}
   }});
 }})();
+{c16_js}
 </script>
 </body>
 </html>"""

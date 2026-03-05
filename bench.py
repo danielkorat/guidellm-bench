@@ -75,6 +75,8 @@ from zoneinfo import ZoneInfo
 
 from guidellm_bench import (
     ABLATION_LC_LENGTHS,
+    ABLATION_C16_CONCURRENCY,
+    ABLATION_C16_SAMPLES,
     EAGLE3_SPECULATIVE_CONFIG,
     FULL,
     LONG_CONTEXT_LENGTHS,
@@ -826,7 +828,162 @@ def _run_ablation(
                 flush=True,
             )
 
-    # Summary
+    # ─────────────────────────────────────────────────────────────────────────
+    # C=16 PHASE: top-5 + EP + Eagle3 configs at concurrency=16
+    # ─────────────────────────────────────────────────────────────────────────
+    # Same 4 input lengths as the c=1 study (1k/2k/4k/8k), ABLATION_C16_SAMPLES
+    # samples each.  Splits the ablation into two use cases:
+    #   c=1  → latency-minimization (serial): which config is fastest per request?
+    #   c=16 → throughput-maximization:       which config handles concurrent load?
+    #
+    # Config selection rationale:
+    #   EP hurts c=1 latency (all-to-all not amortized at batch_size≈1).
+    #   At c=16, many tokens are in-flight and all-to-all cost amortizes → EP may win.
+    #   Top-5 non-EP configs by expected high-concurrency performance:
+    #     1. baseline (tp4)       — reference
+    #     2. tp8                  — extra TP bandwidth
+    #     3. async (tp4)          — CPU pipelining scales with in-flight depth
+    #     4. asyncpc (tp4)        — PC+async: combined optimisation
+    #     5. tp8+asyncpc          — highest ceiling (8 GPU + all opts)
+    #   All EP configs included (EP shines at high concurrency).
+    #   Eagle3 included (speculative accept-rate improves with deeper batches).
+    #   Excluded: tp2 (max_model_len_override=8192 — memory constraint at c=16).
+    def _is_c16_config(c: "Config") -> bool:
+        if c.max_model_len_override is not None:
+            return False   # tp2: skip (restricted context budget)
+        if c.expert_parallel_size:
+            return True    # all EP configs — EP is a throughput optimisation
+        if c.speculative_config is not None:
+            return True    # Eagle3 — accept-rate benefits grow with batch depth
+        # Top-5 non-EP, non-speculative configs
+        if c.tp == 4 and not c.async_scheduling and not c.prefix_caching:
+            return True    # baseline
+        if c.tp == 8 and not c.async_scheduling and not c.prefix_caching:
+            return True    # tp8
+        if c.tp == 4 and c.async_scheduling and not c.prefix_caching:
+            return True    # async
+        if c.tp == 4 and c.async_scheduling and c.prefix_caching:
+            return True    # asyncpc
+        if c.tp == 8 and c.async_scheduling and c.prefix_caching:
+            return True    # tp8+asyncpc
+        return False
+
+    c16_cfgs = [c for c in ablation_cfgs if _is_c16_config(c)]
+    c16_succeeded: list[str] = []
+    c16_failed: list[tuple[str, str]] = []
+
+    if c16_cfgs and lc_datasets:
+        print(f"\n{'='*60}")
+        print(f"C=16 PHASE: {len(c16_cfgs)} configs × {len(lc_datasets)} lengths @ concurrency={ABLATION_C16_CONCURRENCY}")
+        print(f"  (top-5 + EP + Eagle3; shows which config wins at throughput scale)")
+        print(f"{'='*60}")
+
+        # Prepare c16 LC datasets: 20 samples per length (more than c=1's 5,
+        # needed to sustain concurrency=16 across a full benchmark run).
+        # Same cache_dir as c=1 but num_samples=20 triggers a cache upgrade.
+        c16_lc_datasets: dict[int, Optional[str]] = {}
+        if dataset_path:
+            c16_lc_datasets = prepare_long_context_datasets(
+                source_path=dataset_path,
+                token_lengths=ABLATION_LC_LENGTHS,
+                num_samples=ABLATION_C16_SAMPLES,
+                output_tokens=512,
+                cache_dir=out_dir / "datasets",
+            )
+        else:
+            c16_lc_datasets = lc_datasets  # fall back if no dataset (may have < 20 samples)
+
+        for cfg in c16_cfgs:
+            effective_max_model_len = cfg.max_model_len_override or max_model_len
+            _server_log = log_dir / f"{cfg.name}_server.log"
+
+            # Check --resume: skip config if ALL its c16 LC slices already done
+            c16_any_done = any(
+                (out_dir / f"{cfg.name}_c16_lc{l // 1024}k_benchmarks.json").exists()
+                for l in sorted(c16_lc_datasets)
+                if c16_lc_datasets.get(l) and l + 512 <= effective_max_model_len
+            )
+            if resume is not None and c16_any_done:
+                # Re-check if truly ALL are done (not just some)
+                all_c16_done = all(
+                    (out_dir / f"{cfg.name}_c16_lc{l // 1024}k_benchmarks.json").exists()
+                    for l in sorted(c16_lc_datasets)
+                    if c16_lc_datasets.get(l) and l + 512 <= effective_max_model_len
+                )
+                if all_c16_done:
+                    print(f"  ✓  {cfg.name} c16 all LC slices already done — skipping", flush=True)
+                    c16_succeeded.append(cfg.name)
+                    continue
+
+            print(f"\n  → {cfg.name} c16 (c={ABLATION_C16_CONCURRENCY}, {ABLATION_C16_SAMPLES} samples/length)", flush=True)
+            if server_is_reusable(cfg, effective_max_model_len):
+                print("    Reusing running server", flush=True)
+            else:
+                stop_server(current_server_proc)
+                current_server_proc = None
+                _current_server_proc = None
+                proc = start_server(cfg, effective_max_model_len, _server_log)
+                _current_server_proc = proc
+                try:
+                    ready = wait_for_server(timeout_startup, log_path=_server_log, proc=proc)
+                except XpuKernelHangError as _hang:
+                    print(f"  FATAL: {_hang}", flush=True)
+                    stop_server(proc)
+                    sys.exit(42)
+                if not ready:
+                    stop_server(proc)
+                    current_server_proc = None
+                    _current_server_proc = None
+                    c16_failed.append((cfg.name, "server startup failed"))
+                    continue
+                write_server_status(cfg, effective_max_model_len, proc.pid, _server_log)
+                current_server_proc = proc
+                _current_server_proc = proc
+
+            c16_any_success = False
+            for token_len, lc_path in sorted(c16_lc_datasets.items()):
+                if lc_path is None:
+                    continue
+                if token_len + 512 > effective_max_model_len:
+                    print(f"    SKIP c16_lc{token_len // 1024}k: {token_len}+512 > max_model_len={effective_max_model_len}", flush=True)
+                    continue
+                lc_label = f"{token_len // 1024}k" if token_len >= 1024 else str(token_len)
+                c16_name = f"{cfg.name}_c16_lc{lc_label}"
+                c16_checkpoint = out_dir / f"{c16_name}_benchmarks.json"
+                if resume is not None and c16_checkpoint.exists():
+                    print(f"    ✓  c16_lc{lc_label} already done — skipping", flush=True)
+                    c16_any_success = True
+                    continue
+                print(f"    → c16_lc{lc_label} ({token_len} tok, {ABLATION_C16_SAMPLES} samples, c={ABLATION_C16_CONCURRENCY})", flush=True)
+                c16_result = run_guidellm(
+                    cfg,
+                    token_len,
+                    512,
+                    ABLATION_C16_CONCURRENCY,
+                    ABLATION_C16_SAMPLES,
+                    log_dir / f"{c16_name}_bench.log",
+                    sweep=False,        # concurrent profile: --profile concurrent --rate N
+                    dataset_path=lc_path,
+                    lc_mode=False,      # NOT lc_mode: we want concurrent profile, not synchronous
+                )
+                if c16_result is not None:
+                    c16_saved = copy_results(c16_name, out_dir, log_dir / ".guidellm_out")
+                    print(f"    ✓  c16_lc{lc_label} → {', '.join(c16_saved)}", flush=True)
+                    c16_any_success = True
+                else:
+                    print(f"    ✗  c16_lc{lc_label} failed", flush=True)
+
+            if c16_any_success:
+                c16_succeeded.append(cfg.name)
+            else:
+                c16_failed.append((cfg.name, "all c16 LC slices failed"))
+
+        if c16_failed:
+            print("\nFailed c16 configs:")
+            for name, reason_str in c16_failed:
+                print(f"  ✗  {name}: {reason_str}")
+
+    # Ablation Summary
     print(f"\n{'='*60}")
     print(
         f"Ablation finished: {len(succeeded)} succeeded / {len(failed)} failed"
@@ -839,7 +996,10 @@ def _run_ablation(
     print(f"\nAblation results: {out_dir}")
 
     if succeeded:
-        abl_html = build_ablation_dashboard_html(out_dir, succeeded, model_mem_gib=model_mem_gib)
+        abl_html = build_ablation_dashboard_html(
+            out_dir, succeeded, model_mem_gib=model_mem_gib,
+            c16_succeeded=c16_succeeded,
+        )
         if abl_html:
             _serve_html(abl_html)
 
