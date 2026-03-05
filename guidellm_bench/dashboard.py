@@ -242,8 +242,14 @@ def _extract_lc_metrics(data: dict) -> Dict[str, Optional[float]]:
     sm = b.get("scheduler_metrics", {})
     wall_dur = sm.get("measure_end_time", 0) - sm.get("measure_start_time", 0)
     n_succ = len(reqs)
-    if med_lat:
-        rps: Optional[float] = 1.0 / med_lat
+    # Prefer the metrics aggregate (official guidellm value, matches the HTML reports).
+    # Fallback to 1/median_latency or n/wall_dur for older JSON formats.
+    rps_agg = (b.get("metrics", {}).get("requests_per_second", {})
+                 .get("successful", {}).get("median"))
+    if rps_agg:
+        rps: Optional[float] = rps_agg
+    elif med_lat:
+        rps = 1.0 / med_lat
     else:
         rps = n_succ / wall_dur if wall_dur else None
 
@@ -1258,10 +1264,16 @@ def build_ablation_dashboard_html(
     """
     ABLATION_TITLE = "Ablation Study — gpt-oss-20b on Intel Arc Pro B60"
 
-    # Load LC data for all succeeded configs
-    # lc_data: {cfg_name: {token_len: {metric_key: value}}}
+    # Load LC data from ALL existing JSON files on disk, not just the succeeded
+    # list. This handles configs whose LC data was produced in a prior --resume
+    # run but whose server startup failed in this invocation (e.g. baseline OOM).
+    all_lc_names: set = set(succeeded)
+    for fp in sorted(out_dir.glob("*_lc*_benchmarks.json")):
+        _m = re.match(r'^(.+?)_lc\d+k_benchmarks\.json$', fp.name)
+        if _m:
+            all_lc_names.add(_m.group(1))
     lc_data: Dict[str, Dict[int, Dict[str, Optional[float]]]] = {}
-    for name in succeeded:
+    for name in sorted(all_lc_names):
         pts = _load_lc_points(out_dir, name)
         if pts:
             lc_data[name] = pts
@@ -1298,6 +1310,45 @@ def build_ablation_dashboard_html(
 
     ts = _run_timestamp(out_dir)
     conclusions_html = _generate_conclusions(lc_data)
+
+    # ------------------------------------------------------------------
+    # 8k snapshot bars and % delta vs baseline
+    # ------------------------------------------------------------------
+    _BAR_LEN = 8192
+    _LIB = {"ttft_ms": True, "itl_ms": True, "throughput_rps": False, "throughput_tps": False}
+    cfg_names_ordered = list(lc_data.keys())
+    bar_labels = [_ablation_label(n) for n in cfg_names_ordered]
+
+    def _8k_vals(metric: str) -> list:
+        return [(lc_data[n].get(_BAR_LEN) or {}).get(metric) for n in cfg_names_ordered]
+
+    # Per-metric absolute bars at 8k
+    bar_8k: dict = {mk: _8k_vals(mk) for mk, _ in LC_METRICS}
+
+    # % delta vs baseline for every non-baseline config at 8k
+    _baseline_name = next(
+        (n for n in cfg_names_ordered
+         if re.sub(r'^openai_gpt-oss-20b_', '', n) == 'tp4_quant-none'), None
+    )
+    non_baseline_names = [n for n in cfg_names_ordered if n != _baseline_name]
+    delta_labels_js = json.dumps([_ablation_label(n) for n in non_baseline_names])
+    delta_ds: list = []
+    _METRIC_COLORS = ["#2196F3", "#FF9800", "#4CAF50", "#9C27B0"]
+    for mi, (mk, mlabel) in enumerate(LC_METRICS):
+        bl_val = (lc_data.get(_baseline_name, {}).get(_BAR_LEN) or {}).get(mk) if _baseline_name else None
+        lib = _LIB[mk]
+        pcts: list = []
+        for n in non_baseline_names:
+            v = (lc_data[n].get(_BAR_LEN) or {}).get(mk)
+            if v is not None and bl_val:
+                pct = (bl_val - v) / bl_val * 100 if lib else (v - bl_val) / bl_val * 100
+                pcts.append(round(pct, 1))
+            else:
+                pcts.append(None)
+        delta_ds.append({"label": mlabel, "data": pcts,
+                         "backgroundColor": _METRIC_COLORS[mi % 4] + "bb",
+                         "borderColor": _METRIC_COLORS[mi % 4], "borderWidth": 1})
+    delta_ds_js = json.dumps(delta_ds)
 
     # ------------------------------------------------------------------
     # Per-config tab content (LC detail only)
@@ -1427,6 +1478,13 @@ def build_ablation_dashboard_html(
         <div class="col-12"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">ITL (ms) vs Input tokens</div><div class="card-body"><canvas id="lc-itl" style="max-height:500px"></canvas></div></div></div>
         <div class="col-12"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">Req/s vs Input tokens</div><div class="card-body"><canvas id="lc-rps" style="max-height:500px"></canvas></div></div></div>
         <div class="col-12"><div class="card shadow-sm border-info"><div class="card-header fw-bold text-info">Output tok/s vs Input tokens</div><div class="card-body"><canvas id="lc-tps" style="max-height:500px"></canvas></div></div></div>
+        <div class="col-12"><hr class="my-2"><h6 class="text-center text-secondary fw-bold" style="font-size:.85rem">&#9660; Snapshot at 8k Input Tokens (absolute values)</h6></div>
+        <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">TTFT (ms) at 8k</div><div class="card-body p-2"><canvas id="lc-bar-ttft" style="max-height:340px"></canvas></div></div></div>
+        <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">ITL (ms) at 8k</div><div class="card-body p-2"><canvas id="lc-bar-itl" style="max-height:340px"></canvas></div></div></div>
+        <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">Req/s at 8k</div><div class="card-body p-2"><canvas id="lc-bar-rps" style="max-height:340px"></canvas></div></div></div>
+        <div class="col-md-6"><div class="card shadow-sm"><div class="card-header fw-bold">Output tok/s at 8k</div><div class="card-body p-2"><canvas id="lc-bar-tps" style="max-height:340px"></canvas></div></div></div>
+        <div class="col-12"><hr class="my-2"><h6 class="text-center text-secondary fw-bold" style="font-size:.85rem">&#9660; % Improvement vs Baseline (tp4_quant-none) at 8k &mdash; positive = better</h6></div>
+        <div class="col-12"><div class="card shadow-sm border-success"><div class="card-header fw-bold text-success">% Delta vs Baseline at 8k (all metrics, all non-baseline configs)</div><div class="card-body"><canvas id="lc-delta" style="max-height:420px"></canvas></div></div></div>
       </div>
     </div>
     <div class="tab-pane fade" id="tab-conclusions">
@@ -1455,6 +1513,55 @@ lcLine('lc-ttft', {json.dumps(lc_metric_ds['ttft_ms'])},        'TTFT (ms)');
 lcLine('lc-itl',  {json.dumps(lc_metric_ds['itl_ms'])},         'ITL (ms)');
 lcLine('lc-rps',  {json.dumps(lc_metric_ds['throughput_rps'])}, 'Req/s');
 lcLine('lc-tps',  {json.dumps(lc_metric_ds['throughput_tps'])}, 'Output tok/s');
+
+// 8k snapshot horizontal bar charts (one per metric)
+(function() {{
+  const PAL = {json.dumps(COLORS)};
+  const labels = {json.dumps(bar_labels)};
+  function hbar(id, data, xLabel) {{
+    const el = document.getElementById(id);
+    if (!el) return;
+    const valid = data.map(v => v !== null && v !== undefined);
+    new Chart(el, {{
+      type: 'bar',
+      data: {{ labels,
+               datasets: [{{ data, label: xLabel,
+                 backgroundColor: PAL.slice(0, labels.length).map((c,i) => valid[i] ? c+'cc' : '#ccc'),
+                 borderColor:     PAL.slice(0, labels.length).map((c,i) => valid[i] ? c      : '#ccc'),
+                 borderWidth: 1 }}] }},
+      options: {{
+        indexAxis: 'y',
+        plugins: {{ legend: {{ display: false }}, tooltip: {{ callbacks: {{ label: ctx => ` ${{ctx.parsed.x?.toFixed(3)}} ${{xLabel}}` }} }} }},
+        scales: {{ x: {{ beginAtZero: false, title: {{ display: true, text: xLabel }} }} }}
+      }}
+    }});
+  }}
+  hbar('lc-bar-ttft', {json.dumps(bar_8k['ttft_ms'])},        'ms');
+  hbar('lc-bar-itl',  {json.dumps(bar_8k['itl_ms'])},         'ms');
+  hbar('lc-bar-rps',  {json.dumps(bar_8k['throughput_rps'])}, 'req/s');
+  hbar('lc-bar-tps',  {json.dumps(bar_8k['throughput_tps'])}, 'tok/s');
+}})();
+
+// % delta vs baseline grouped bar chart
+(function() {{
+  const el = document.getElementById('lc-delta');
+  if (!el) return;
+  new Chart(el, {{
+    type: 'bar',
+    data: {{ labels: {delta_labels_js}, datasets: {delta_ds_js} }},
+    options: {{
+      plugins: {{
+        legend: {{ position: 'top' }},
+        tooltip: {{ callbacks: {{ label: ctx => ` ${{ctx.dataset.label}}: ${{ctx.parsed.y >= 0 ? '+' : ''}}${{ctx.parsed.y?.toFixed(1)}}%` }} }}
+      }},
+      scales: {{
+        y: {{ title: {{ display: true, text: '% improvement vs baseline' }},
+              ticks: {{ callback: v => (v >= 0 ? '+' : '') + v + '%' }} }},
+        x: {{ ticks: {{ maxRotation: 30, font: {{ size: 10 }} }} }}
+      }}
+    }}
+  }});
+}})();
 </script>
 </body>
 </html>"""

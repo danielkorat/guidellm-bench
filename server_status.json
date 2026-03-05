@@ -1,0 +1,15 @@
+{
+  "model": "openai/gpt-oss-20b",
+  "tp": 8,
+  "quant": null,
+  "eager": true,
+  "expert_parallel_size": null,
+  "speculative_config": null,
+  "async_scheduling": true,
+  "prefix_caching": true,
+  "max_model_len": 16384,
+  "port": 8000,
+  "pid": 100915,
+  "log_path": "/root/guidellm-bench/ablation_results/20260304_1428/logs/openai_gpt-oss-20b_tp8_quant-none-async-pc_server.log",
+  "status": "ready"
+}

@@ -349,6 +349,11 @@ def stop_server(proc: Optional[subprocess.Popen] = None) -> None:
         SERVER_STATUS_PATH.unlink(missing_ok=True)
     except OSError:
         pass
+    # XPU driver releases VRAM asynchronously after process exit.  Without this
+    # pause, the next vllm server attempting to load the model may OOM on a
+    # specific GPU tile whose VRAM hasn't been reclaimed yet (observed: Worker_TP2
+    # OOM during tp4+async-pc startup immediately after tp2 server was stopped).
+    time.sleep(10)
     print("  Server stopped.", flush=True)
 
 
