@@ -81,17 +81,27 @@ from guidellm_bench import (
     FULL,
     LONG_CONTEXT_LENGTHS,
     SANITY,
+    THROUGHPUT_CONCURRENCIES,
+    THROUGHPUT_INPUT_LENGTHS,
+    THROUGHPUT_MAX_MODEL_LEN,
+    THROUGHPUT_MAX_NUM_BATCHED_TOKENS,
+    THROUGHPUT_MAX_SECONDS,
+    THROUGHPUT_OUTPUT_LEN,
+    THROUGHPUT_SAMPLES,
     Config,
     SERVER_STATUS_PATH,
     XpuKernelHangError,
     build_ablation_dashboard_html,
     build_dashboard_html,
+    build_throughput_dashboard_html,
     get_ablation_configs,
+    get_throughput_configs,
     is_moe_model,
     parse_model_mem_gib,
     prepare_aime_dataset,
     prepare_hf_dataset,
     prepare_long_context_datasets,
+    prepare_throughput_dataset,
     run_guidellm,
     server_is_reusable,
     skip_reason,
@@ -270,6 +280,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
              "Results saved to ./ablation_results/. Combine with --data to use a custom dataset.",
     )
     p.add_argument(
+        "--throughput", action="store_true",
+        help="Run throughput study for gpt-oss-20b: 2 server configs (tp8+async and "
+             "tp8+async+EP), 4 concurrencies (1/16/64/128), 4 input lengths "
+             "(16k/32k/48k/96k), 16k output, PC disabled. "
+             "Results → ./throughput_results/.",
+    )
+    p.add_argument(
         "--resume", metavar="DIR", nargs="?", const="",
         help="Resume an interrupted run. With a DIR argument, reuses that directory. "
              "Without a DIR argument, automatically resumes the latest run in the "
@@ -320,9 +337,11 @@ def main() -> None:
     results_dir      = get("results_dir", "results_dir")
     timeout_startup  = get("timeout_startup", "timeout_startup")
 
-    # Ablation mode uses its own results directory (separate from full runs)
+    # Ablation / throughput modes use their own results directories
     if getattr(args, "ablation", False):
         results_dir = "./ablation_results"
+    if getattr(args, "throughput", False):
+        results_dir = "./throughput_results"
 
     # Auto-clean incomplete run dirs (no _benchmarks.json) from prior aborted runs.
     # Skip when resuming — the target dir may legitimately have zero files yet.
@@ -437,6 +456,20 @@ def main() -> None:
             resume=args.resume,
         )
         return  # ablation handled; skip standard loop
+
+    # ------------------------------------------------------------------
+    # Throughput mode: concurrency × input-length study for gpt-oss-20b
+    # ------------------------------------------------------------------
+    if getattr(args, "throughput", False):
+        _run_throughput(
+            out_dir=out_dir,
+            log_dir=log_dir,
+            dataset_path=dataset_path,
+            timeout_startup=timeout_startup,
+            model_mem_gib=model_mem_gib,
+            resume=args.resume,
+        )
+        return  # throughput handled; skip standard loop
 
     # Build config list, applying skip rules
     configs: list[Config] = []
@@ -1002,6 +1035,202 @@ def _run_ablation(
         )
         if abl_html:
             _serve_html(abl_html)
+
+
+def _run_throughput(
+    out_dir: Path,
+    log_dir: Path,
+    dataset_path: Optional[str],
+    timeout_startup: int,
+    model_mem_gib: dict,
+    resume,
+) -> None:
+    """Throughput study: concurrency × input_length sweep for gpt-oss-20b on Intel XPU.
+
+    2 server configurations:
+      Server A – tp=8, async-scheduling, no EP: concurrencies [1, 16, 64, 128]
+      Server B – tp=8, async-scheduling, EP:    concurrencies [   16, 64, 128]
+
+    Exactly 1 server restart between Server A and Server B.
+    Input lengths: 16k / 32k / 48k / 96k (tokens).  Output: 16k.  PC disabled.
+    Samples per concurrency: {1:10, 16:32, 64:128, 128:256} (2×c rule).
+    """
+    print(f"\n{'='*60}")
+    print("THROUGHPUT MODE: gpt-oss-20b concurrency × input-length sweep")
+    print(f"  tp=8 + async | 4 concurrencies | 4 input lengths | output=16k | PC disabled")
+    print(f"{'='*60}\n")
+
+    # ── Dataset resolution ───────────────────────────────────────────────────
+    if dataset_path is None:
+        # Try auto-discovering from the last full run
+        discovered = _find_last_run_dataset()
+        if discovered:
+            print(f"  Throughput: auto-discovered dataset from last run: {discovered}", flush=True)
+            dataset_path = discovered
+        else:
+            # Fall back to arxiv-summarization (long documents → realistic prefill)
+            print("  No dataset supplied — downloading ccdv/arxiv-summarization …", flush=True)
+            arxiv_path = prepare_hf_dataset(
+                "ccdv/arxiv-summarization",
+                output_tokens=THROUGHPUT_OUTPUT_LEN,
+                max_samples=1000,
+                cache_dir=out_dir / "datasets",
+            )
+            dataset_path = arxiv_path or prepare_aime_dataset(output_tokens=THROUGHPUT_OUTPUT_LEN)
+
+    # ── Pre-build throughput JSONL slices (one per input_len, 256 rows max) ──
+    max_samples_needed = max(THROUGHPUT_SAMPLES.values())   # 256 for c=128
+    tp_datasets: dict[int, Optional[str]] = {}
+    for il in THROUGHPUT_INPUT_LENGTHS:
+        if dataset_path:
+            tp_datasets[il] = prepare_throughput_dataset(
+                source_path=dataset_path,
+                input_len=il,
+                output_len=THROUGHPUT_OUTPUT_LEN,
+                num_samples=max_samples_needed,
+                cache_dir=out_dir / "datasets",
+            )
+        else:
+            tp_datasets[il] = None
+
+    # ── Config matrix ────────────────────────────────────────────────────────
+    thr_cfgs = get_throughput_configs()    # [Server A, Server B]
+    concurrencies_for_cfg: dict[str, list[int]] = {
+        thr_cfgs[0].name: list(THROUGHPUT_CONCURRENCIES),            # all
+        thr_cfgs[1].name: [c for c in THROUGHPUT_CONCURRENCIES if c > 1],  # EP: c>1 only
+    }
+    total_cells = sum(
+        len(cs) * len(THROUGHPUT_INPUT_LENGTHS)
+        for cs in concurrencies_for_cfg.values()
+    )
+    print(
+        f"{len(thr_cfgs)} server configs × {len(THROUGHPUT_CONCURRENCIES)} concurrencies "
+        f"× {len(THROUGHPUT_INPUT_LENGTHS)} input lengths = {total_cells} cells total\n",
+        flush=True,
+    )
+
+    global _current_server_proc
+    current_server_proc = None
+    succeeded: list[tuple[str, int, int]] = []   # (cfg_name, concurrency, input_len)
+    failed:    list[tuple[str, str]]       = []
+    run_start = time.time()
+
+    # Outer loop = server config (ensures exactly 1 restart between A and B)
+    for srv_idx, cfg in enumerate(thr_cfgs):
+        concs = concurrencies_for_cfg.get(cfg.name, list(THROUGHPUT_CONCURRENCIES))
+        print(f"\n{'='*60}")
+        print(f"[Server {srv_idx + 1}/{len(thr_cfgs)}]  {cfg.name}")
+        print(f"  Concurrencies: {concs}")
+        print(f"{'='*60}")
+
+        _server_log = log_dir / f"{cfg.name}_server.log"
+        if server_is_reusable(cfg, THROUGHPUT_MAX_MODEL_LEN):
+            print("  Reusing running server (config matches, server is healthy)", flush=True)
+        else:
+            stop_server(current_server_proc)
+            current_server_proc = None
+            _current_server_proc = None
+            proc = start_server(
+                cfg, THROUGHPUT_MAX_MODEL_LEN, _server_log,
+                max_num_batched_tokens=THROUGHPUT_MAX_NUM_BATCHED_TOKENS,
+            )
+            _current_server_proc = proc
+            try:
+                ready = wait_for_server(timeout_startup, log_path=_server_log, proc=proc)
+            except XpuKernelHangError as _hang:
+                print(f"  FATAL: {_hang}", flush=True)
+                stop_server(proc)
+                sys.exit(42)
+            if not ready:
+                stop_server(proc)
+                current_server_proc = None
+                _current_server_proc = None
+                failed.append((cfg.name, "server startup failed"))
+                continue
+            write_server_status(cfg, THROUGHPUT_MAX_MODEL_LEN, proc.pid, _server_log)
+            current_server_proc = proc
+            _current_server_proc = proc
+
+        mem_gib = parse_model_mem_gib(_server_log)
+        if mem_gib is not None:
+            model_mem_gib[cfg.name] = mem_gib
+            print(
+                f"  Model weights: {mem_gib:.2f} GiB/GPU × {cfg.tp} GPUs"
+                f" = {mem_gib * cfg.tp:.2f} GiB total",
+            )
+
+        # Inner loops: concurrency then input_length (server stays up throughout)
+        for c in sorted(concs):
+            n_samples   = THROUGHPUT_SAMPLES[c]
+            is_serial   = (c == 1)   # c=1 → synchronous / lc_mode; c>1 → concurrent
+            for il in THROUGHPUT_INPUT_LENGTHS:
+                il_label  = f"{il // 1024}k"
+                cell_name = f"{cfg.name}_c{c}_il{il_label}"
+                checkpoint = out_dir / f"{cell_name}_benchmarks.json"
+
+                if resume is not None and checkpoint.exists():
+                    print(f"  ✓  {cell_name} already done — skipping", flush=True)
+                    succeeded.append((cfg.name, c, il))
+                    continue
+
+                _e = time.time() - run_start
+                _done_cells = len(succeeded) + len(failed)
+                _avg = _e / _done_cells if _done_cells else 0
+                _rem = _avg * (total_cells - _done_cells) if _avg else 0
+                _eta = _israel_now() + timedelta(seconds=_rem) if _rem else None
+                _eta_str = f" | ETA {_eta.strftime('%H:%M')} Israel" if _eta else ""
+                print(
+                    f"\n  → c={c}  il={il_label}  output={THROUGHPUT_OUTPUT_LEN // 1024}k"
+                    f"  ({n_samples} samples)"
+                    f"  [{_done_cells}/{total_cells} done{_eta_str}]",
+                    flush=True,
+                )
+
+                result = run_guidellm(
+                    cfg,
+                    il,                          # input tokens
+                    THROUGHPUT_OUTPUT_LEN,       # output tokens
+                    c,                           # concurrency / rate
+                    n_samples,                   # num_prompts
+                    log_dir / f"{cell_name}_bench.log",
+                    sweep=False,
+                    dataset_path=tp_datasets.get(il),
+                    data_samples=n_samples,
+                    lc_mode=is_serial,
+                    max_seconds=THROUGHPUT_MAX_SECONDS,
+                    num_requests_override=n_samples,
+                )
+                if result is not None:
+                    saved = copy_results(cell_name, out_dir, log_dir / ".guidellm_out")
+                    print(f"  ✓  {cell_name} → {', '.join(saved)}", flush=True)
+                    succeeded.append((cfg.name, c, il))
+                else:
+                    print(f"  ✗  {cell_name} failed", flush=True)
+                    failed.append((cell_name, "guidellm run failed"))
+
+                # Rebuild dashboard incrementally after every completed cell
+                cfg_names_done = sorted({s[0] for s in succeeded})
+                if cfg_names_done:
+                    build_throughput_dashboard_html(out_dir, cfg_names_done)
+
+    # ── Final summary ────────────────────────────────────────────────────────
+    total_elapsed = time.time() - run_start
+    print(f"\n{'='*60}")
+    print(
+        f"Throughput study finished: {len(succeeded)}/{total_cells} cells done"
+        f" in {_fmt_dur(total_elapsed)}",
+    )
+    if failed:
+        print("\nFailed cells:")
+        for name, reason_str in failed:
+            print(f"  ✗  {name}: {reason_str}")
+    print(f"\nResults: {out_dir}", flush=True)
+
+    cfg_names_done = sorted({s[0] for s in succeeded})
+    if cfg_names_done:
+        thr_html = build_throughput_dashboard_html(out_dir, cfg_names_done)
+        if thr_html:
+            _serve_html(thr_html)
 
 
 def _serve_html(html_path: Path) -> None:

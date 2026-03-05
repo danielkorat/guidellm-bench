@@ -1859,3 +1859,328 @@ lcLine('lc-tps',  {json.dumps(lc_metric_ds['throughput_tps'])}, 'Output tok/s');
     print(f"\n  Ablation Dashboard → {out_path}", flush=True)
     write_serve_script(out_path)
     return out_path
+
+
+# ---------------------------------------------------------------------------
+# Throughput study dashboard
+# ---------------------------------------------------------------------------
+
+def _load_throughput_points(
+    out_dir: Path,
+    cfg_names: list,
+    concurrencies: list,
+    input_lengths: list,
+) -> dict:
+    """Load throughput benchmark results from disk.
+
+    Returns ``{cfg_name: {concurrency: {input_len: {metric: value}}}}``.
+    File naming: ``{cfg_name}_c{c}_il{il//1024}k_benchmarks.json``.
+    """
+    data: dict = {}
+    for cfg_name in cfg_names:
+        cfg_data: dict = {}
+        for c in concurrencies:
+            c_data: dict = {}
+            for il in input_lengths:
+                label = f"{il // 1024}k"
+                fp = out_dir / f"{cfg_name}_c{c}_il{label}_benchmarks.json"
+                if not fp.exists():
+                    continue
+                try:
+                    with open(fp) as f:
+                        raw = json.load(f)
+                    metrics = _extract_lc_metrics(raw)
+                    if any(v is not None for v in metrics.values()):
+                        c_data[il] = metrics
+                except Exception:
+                    pass
+            if c_data:
+                cfg_data[c] = c_data
+        if cfg_data:
+            data[cfg_name] = cfg_data
+    return data
+
+
+def build_throughput_dashboard_html(
+    out_dir: Path,
+    succeeded: list,
+) -> "Optional[Path]":
+    """Build throughput_dashboard.html for the --throughput study.
+
+    Tabs:
+      c=1 (Latency)   — 4 metric line charts vs input_len, no-EP only
+      c=16            — same 4 charts, no-EP + EP lines
+      c=64            — same 4 charts, no-EP + EP lines
+      c=128           — same 4 charts, no-EP + EP lines
+      Concurrency Effects — TTFT and tok/s vs concurrency, one line per (cfg × input_len)
+
+    File naming convention (inputs from _run_throughput in bench.py):
+      {cfg_name}_c{c}_il{il//1024}k_benchmarks.json
+
+    Args:
+        out_dir:   Directory containing benchmark JSON files.
+        succeeded: List of (cfg_name, concurrency, input_len) tuples with results.
+
+    Returns:
+        Path to written throughput_dashboard.html, or None if no data.
+    """
+    try:
+        from .config import (
+            THROUGHPUT_CONCURRENCIES, THROUGHPUT_INPUT_LENGTHS, THROUGHPUT_OUTPUT_LEN,
+            THROUGHPUT_SAMPLES,
+        )
+    except ImportError:
+        THROUGHPUT_CONCURRENCIES = [1, 16, 64, 128]
+        THROUGHPUT_INPUT_LENGTHS = [16384, 32768, 49152, 98304]
+        THROUGHPUT_OUTPUT_LEN    = 16384
+        THROUGHPUT_SAMPLES       = {1: 10, 16: 32, 64: 128, 128: 256}
+
+    # Discover all cfg_names that have any result on disk
+    all_cfg_names: set = set()
+    pat = re.compile(r'^(.+?)_c(\d+)_il(\d+k)_benchmarks\.json$')
+    for fp in sorted(out_dir.glob("*_c*_il*k_benchmarks.json")):
+        m = pat.match(fp.name)
+        if m:
+            all_cfg_names.add(m.group(1))
+
+    if not all_cfg_names:
+        print("  No throughput results found for dashboard", flush=True)
+        return None
+
+    # Stable ordering: sort cfg_names (no-EP first, EP second)
+    cfg_names_ord = sorted(all_cfg_names, key=lambda n: (1 if "-ep" in n else 0, n))
+
+    td = _load_throughput_points(
+        out_dir, cfg_names_ord, THROUGHPUT_CONCURRENCIES, THROUGHPUT_INPUT_LENGTHS,
+    )
+
+    if not td:
+        print("  No throughput data found for dashboard", flush=True)
+        return None
+
+    ts = _run_timestamp(out_dir)
+    TITLE = "Throughput Study \u2014 gpt-oss-20b on Intel Arc Pro B60"
+
+    # ── Metric definitions ──────────────────────────────────────────────────
+    METRICS = [
+        ("ttft_ms",         "TTFT (ms)",        "input tokens"),
+        ("itl_ms",          "ITL (ms)",          "input tokens"),
+        ("throughput_rps",  "Req/s",             "input tokens"),
+        ("throughput_tps",  "Output tok/s",      "input tokens"),
+    ]
+
+    def cfg_label(name: str) -> str:
+        return re.sub(r'^openai_gpt-oss-20b_tp\d+_quant-none-?', '', name) or name
+
+    def il_label(il: int) -> str:
+        return f"{il // 1024}k"
+
+    # ── Build per-concurrency tab data ──────────────────────────────────────
+    def conc_tab_datasets(c: int) -> dict:
+        """Return {metric_key: [Chart.js dataset dicts]} for concurrency *c*."""
+        ds: dict = {mk: [] for mk, _, _ in METRICS}
+        for i, cfg_name in enumerate(cfg_names_ord):
+            cfg_c_data = td.get(cfg_name, {}).get(c)
+            if cfg_c_data is None:
+                continue
+            color = COLORS[i % len(COLORS)]
+            label = cfg_label(cfg_name) or "no-ep"
+            base_opts = {
+                "borderColor": color, "backgroundColor": color + "55",
+                "tension": 0.3, "spanGaps": True, "pointRadius": 6, "pointHoverRadius": 9,
+                "fill": False,
+            }
+            for mk, _, _ in METRICS:
+                xy = [
+                    {"x": il, "y": cfg_c_data[il].get(mk)}
+                    for il in sorted(cfg_c_data)
+                    if cfg_c_data[il].get(mk) is not None
+                ]
+                if xy:
+                    ds[mk].append({"label": label, "data": xy, **base_opts})
+        return ds
+
+    # ── Build concurrency-effects tab data ──────────────────────────────────
+    # One line per (cfg_name × input_len) → x=concurrency, y=metric
+    def conc_eff_datasets(metric_key: str) -> list:
+        out = []
+        color_idx = 0
+        for cfg_name in cfg_names_ord:
+            cfg_td = td.get(cfg_name, {})
+            # Collect all input lengths that have any data for this config
+            ils_with_data = sorted({
+                il for c_data in cfg_td.values() for il in c_data
+            })
+            for il in ils_with_data:
+                pts = []
+                for c in sorted(THROUGHPUT_CONCURRENCIES):
+                    val = cfg_td.get(c, {}).get(il, {}).get(metric_key)
+                    if val is not None:
+                        pts.append({"x": c, "y": val})
+                if pts:
+                    color = COLORS[color_idx % len(COLORS)]
+                    out.append({
+                        "label": f"{cfg_label(cfg_name)} {il_label(il)}",
+                        "data": pts,
+                        "borderColor": color, "backgroundColor": color + "55",
+                        "tension": 0.3, "spanGaps": True,
+                        "pointRadius": 6, "pointHoverRadius": 9,
+                        "fill": False,
+                    })
+                    color_idx += 1
+        return out
+
+    # ── navs + tab panes ────────────────────────────────────────────────────
+    conc_nav_items = ""
+    conc_tab_panes = ""
+    # Unique chart-id counter
+    chart_seq = [0]
+    def next_cid(name: str) -> str:
+        chart_seq[0] += 1
+        return f"thr-{name}-{chart_seq[0]}"
+
+    # Concurrency tabs (c=1, c=16, c=64, c=128)
+    for tab_idx, c in enumerate(THROUGHPUT_CONCURRENCIES):
+        tab_id = f"tab-c{c}"
+        active = "active" if tab_idx == 0 else ""
+        show   = "show active" if tab_idx == 0 else ""
+        ds_map = conc_tab_datasets(c)
+
+        charts_html = ""
+        chart_js_lines = []
+        for mk, mlabel, x_label in METRICS:
+            cid = next_cid(mk)
+            charts_html += f"""
+      <div class="col-md-6 mb-3">
+        <div class="card shadow-sm h-100">
+          <div class="card-header fw-semibold" style="font-size:.82rem">{mlabel} vs Input Length</div>
+          <div class="card-body p-2"><canvas id="{cid}" style="max-height:340px"></canvas></div>
+        </div>
+      </div>"""
+            ds_json = json.dumps(ds_map.get(mk, []))
+            chart_js_lines.append(f"""
+  makeLineChart("{cid}", {ds_json}, "Input tokens", "{mlabel}");""")
+
+        conc_nav_items += (
+            f'<li class="nav-item"><a class="nav-link {active}" data-bs-toggle="tab" '
+            f'href="#{tab_id}">c={c}</a></li>\n'
+        )
+        ep_note = " (no-EP only)" if c == 1 else ""
+        conc_tab_panes += f"""
+<div class="tab-pane fade {show}" id="{tab_id}">
+  <div class="p-2 mb-2 bg-light rounded" style="font-size:.82rem">
+    <strong>Concurrency = {c}{ep_note}</strong> &mdash;
+    {THROUGHPUT_SAMPLES.get(c, "?")} requests, output = {THROUGHPUT_OUTPUT_LEN // 1024}k tokens, PC disabled.
+  </div>
+  <div class="row g-2">{charts_html}</div>
+</div>"""
+        conc_tab_panes += "\n".join(chart_js_lines)
+
+    # Concurrency Effects tab
+    eff_nav = (
+        '<li class="nav-item"><a class="nav-link" data-bs-toggle="tab" '
+        'href="#tab-conc-eff">&#128200; Concurrency Effects</a></li>'
+    )
+    eff_charts_html = ""
+    eff_js_lines = []
+    for mk, mlabel, _ in [("ttft_ms", "TTFT (ms)", ""), ("throughput_tps", "Output tok/s", "")]:
+        cid = next_cid(f"eff-{mk}")
+        eff_charts_html += f"""
+    <div class="col-md-6 mb-3">
+      <div class="card shadow-sm h-100">
+        <div class="card-header fw-semibold" style="font-size:.82rem">{mlabel} vs Concurrency</div>
+        <div class="card-body p-2"><canvas id="{cid}" style="max-height:380px"></canvas></div>
+      </div>
+    </div>"""
+        ds_json = json.dumps(conc_eff_datasets(mk))
+        eff_js_lines.append(f'  makeLineChart("{cid}", {ds_json}, "Request rate (req/s)", "{mlabel}");')
+
+    eff_tab_pane = f"""
+<div class="tab-pane fade" id="tab-conc-eff">
+  <div class="p-2 mb-2 bg-light rounded" style="font-size:.82rem">
+    <strong>Concurrency Effects</strong> &mdash;
+    TTFT and output tok/s vs request rate.  Each line = one (config &times; input_len) combination.
+    EP lines start at c=16 (EP not run at c=1). PC disabled throughout.
+  </div>
+  <div class="row g-2">{eff_charts_html}</div>
+</div>
+<script>
+(function(){{
+  {chr(10).join(eff_js_lines)}
+}})();
+</script>"""
+
+    # ── Assemble page ───────────────────────────────────────────────────────
+    THROUGHPUT_SAMPLES_JSON = json.dumps(THROUGHPUT_SAMPLES)
+    page = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{TITLE}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<style>
+  body {{ font-family: system-ui, sans-serif; background:#f8f9fa; }}
+  .navbar-brand {{ font-weight:700; font-size:1.05rem; }}
+  canvas {{ max-width:100%; }}
+</style>
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark px-3 py-2">
+  <span class="navbar-brand">{TITLE}</span>
+  <span class="text-white-50 ms-auto" style="font-size:.8rem">
+    Docker: {DOCKER_IMAGE} &nbsp;|&nbsp; {ts}
+  </span>
+</nav>
+<div class="container-fluid py-3">
+  <p class="text-muted" style="font-size:.85rem">
+    gpt-oss-20b | tp=8 | async-scheduling | no prefix caching |
+    input: {", ".join(il_label(il) for il in THROUGHPUT_INPUT_LENGTHS)} |
+    output: {il_label(THROUGHPUT_OUTPUT_LEN)} |
+    concurrencies: {", ".join(f"c={c}" for c in THROUGHPUT_CONCURRENCIES)} |
+    samples: {THROUGHPUT_SAMPLES_JSON}
+  </p>
+  <ul class="nav nav-tabs mb-3" id="mainTabs" role="tablist">
+    {conc_nav_items}
+    {eff_nav}
+  </ul>
+  <div class="tab-content">
+    {conc_tab_panes}
+    {eff_tab_pane}
+  </div>
+</div>
+<script>
+function makeLineChart(canvasId, datasets, xLabel, yLabel) {{
+  const ctx = document.getElementById(canvasId);
+  if (!ctx || !datasets.length) return;
+  new Chart(ctx, {{
+    type: 'line',
+    data: {{ datasets }},
+    options: {{
+      responsive: true,
+      parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
+      plugins: {{
+        legend: {{ position: 'top' }},
+        tooltip: {{ callbacks: {{
+          label: ctx => ` ${{ctx.dataset.label}}: ${{ctx.parsed.y?.toFixed(1)}}`
+        }} }}
+      }},
+      scales: {{
+        x: {{ type: 'linear', title: {{ display: true, text: xLabel }},
+             ticks: {{ callback: v => v >= 1024 ? (v/1024)+'k' : v }} }},
+        y: {{ title: {{ display: true, text: yLabel }} }}
+      }}
+    }}
+  }});
+}}
+</script>
+</body>
+</html>"""
+
+    out_path = out_dir / "throughput_dashboard.html"
+    out_path.write_text(page)
+    print(f"\n  Throughput Dashboard \u2192 {out_path}", flush=True)
+    write_serve_script(out_path)
+    return out_path

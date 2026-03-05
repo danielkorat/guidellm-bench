@@ -3,6 +3,7 @@ __pycache__/
 results/
 sanity_results/
 ablation_results/
+throughput_results/
 guidellm_results/
 guidellm_sanity_results/
 bench_full.log

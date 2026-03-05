@@ -41,6 +41,15 @@ Benchmarking tool (`bench.py` entry point + `guidellm_bench/` package) that runs
 │       ├── bench.log
 │       ├── bench.pid
 │       └── logs/
+├── throughput_results/           # Created at runtime (--throughput runs) — gitignored
+│   └── YYYYMMDD_HHMM/
+│       ├── throughput_dashboard.html
+│       ├── serve_throughput_dashboard.sh
+│       ├── {cfg_name}_c{c}_il{il}k_benchmarks.json  # one per server×concurrency×input_len
+│       ├── datasets/                                 # throughput_*_{N}k_v1.jsonl
+│       ├── bench.log
+│       ├── bench.pid
+│       └── logs/
 └── sanity_results/               # Created at runtime (—sanity runs) — gitignored
 ```
 
@@ -428,6 +437,21 @@ nohup ./bench.py > /dev/null 2>&1 &
 # Ablation with custom dataset (auto-discovers from last run if omitted)
 ./bench.py --ablation --data cx-cmu/deepresearchgym-agentic-search-logs
 
+# Throughput study: 2 server configs (tp8+async and tp8+async+EP)
+# 4 concurrencies (c=1/16/64/128) × 4 input lengths (16k/32k/48k/96k) × output=16k
+# PC disabled; exactly 1 server restart; samples = 2×c (10/32/128/256)
+# Output → ./throughput_results/YYYYMMDD_HHMM/throughput_dashboard.html
+./bench.py --throughput
+
+# Throughput with custom dataset (auto-discovers arxiv-summarization if omitted)
+./bench.py --throughput --data ccdv/arxiv-summarization
+
+# Throughput run in background (self-logs; ~12 hours wall-clock)
+nohup ./bench.py --throughput > /dev/null 2>&1 &
+
+# Resume an interrupted throughput run
+./bench.py --throughput --resume throughput_results/YYYYMMDD_HHMM
+
 # Combined: gpt-oss-20b EP comparison with long-context slices on deepresearchgym dataset
 nohup ./bench.py \
   --models openai/gpt-oss-20b \
@@ -540,7 +564,45 @@ Cached to `out_dir/datasets/{safe_name}_{split}_v1.jsonl`. Output: `{prompt, out
 - **Mutually exclusive** with `--ep` — validated at startup with `sys.exit()`.
 - Both `_EP_VARIANTS` list and the dedup loop live in `bench.py::main()` (not `config.py`).
 
-**Last Updated**: March 6, 2026 — Added C=16 PHASE to ablation study: top-5+EP+Eagle3 configs × 4 LC lengths at concurrency=16; new "Throughput (c=16)" tab in ablation dashboard with line charts + 8k snapshot bars; merged c16 insights into Conclusions; fixed ordering bug (c16_data now loaded before `_generate_conclusions()` call); updated Rule 31 to document both c=1 and c=16 phases
+### 33. Throughput Study (`--throughput`)
+**RULE**: `--throughput` is a concurrency × input_length sweep for `gpt-oss-20b` on Intel XPU.
+
+#### Server configurations
+| Name | tp | async | EP | Concurrencies |
+|---|---|---|---|---|
+| Server A | 8 | ✓ | ✗ | 1, 16, 64, 128 |
+| Server B | 8 | ✓ | ✓ | 16, 64, 128 |
+
+**Exactly 1 server restart** (Server A finishes ALL concurrencies before Server B starts).
+
+#### Constants (in `config.py`)
+| Constant | Value |
+|---|---|
+| `THROUGHPUT_INPUT_LENGTHS` | `[16384, 32768, 49152, 98304]` (16k/32k/48k/96k) |
+| `THROUGHPUT_OUTPUT_LEN` | `16384` (16k) |
+| `THROUGHPUT_CONCURRENCIES` | `[1, 16, 64, 128]` |
+| `THROUGHPUT_MAX_MODEL_LEN` | `131072` |
+| `THROUGHPUT_MAX_NUM_BATCHED_TOKENS` | `131072` |
+| `THROUGHPUT_SAMPLES` | `{1:10, 16:32, 64:128, 128:256}` (2×c rule) |
+| `THROUGHPUT_MAX_SECONDS` | `10800` (3h per cell) |
+
+#### Implementation
+- `get_throughput_configs()` in `config.py` → Server A + Server B
+- `prepare_throughput_dataset(source, input_len, output_len, num_samples, cache_dir)` in `dataset.py` → cyclic concatenation, safe because PC is disabled
+- `_run_throughput()` in `bench.py` → outer loop = server config, inner loop = concurrency then input_len
+- `build_throughput_dashboard_html(out_dir, succeeded)` in `dashboard.py` → 5 tabs: c=1/16/64/128 + Concurrency Effects
+- File naming: `{cfg_name}_c{c}_il{il//1024}k_benchmarks.json`
+- Results → `./throughput_results/YYYYMMDD_HHMM/`
+
+#### Throughput dashboard tabs
+- **c=1 (Latency)**: TTFT / ITL / Req/s / Tok/s vs input_len, no-EP only
+- **c=16, c=64, c=128**: same 4 charts, no-EP + EP lines
+- **Concurrency Effects**: TTFT and Tok/s vs concurrency [1→128], one line per (config × input_len); EP lines start at c=16
+
+#### `max_num_batched_tokens` for large-context studies
+**RULE**: Set `max_num_batched_tokens ≥ max_input_len` when running large-context (16k+) benchmarks. The default of `8192` causes vLLM to chunk a 96k-token prefill over ~12 forward passes, serialising the KV-cache write and inflating TTFT by 10-50×. `THROUGHPUT_MAX_NUM_BATCHED_TOKENS = 131072` matches the full context window.
+
+**Last Updated**: March 7, 2026 — Added `--throughput` mode: `_run_throughput()` in `bench.py`, `build_throughput_dashboard_html()` in `dashboard.py`, `prepare_throughput_dataset()` in `dataset.py`, `get_throughput_configs()` + THROUGHPUT_* constants in `config.py`; 2 server configs (tp8+async, tp8+async+ep); exactly 1 restart; 4 concurrencies × 4 input lengths × 1 output length; 2×c samples; max_num_batched_tokens=131072; throughput_dashboard.html with per-concurrency tabs + Concurrency Effects tab; results → `./throughput_results/`; Rule 33 added; repo structure + Common Commands updated.
 **Primary Maintainer**: Daniel Korat, Intel
 
 ---

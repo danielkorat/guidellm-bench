@@ -329,3 +329,107 @@ def prepare_long_context_datasets(
         results[tlen] = str(out_path)
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Throughput study dataset (cyclic concatenation, PC disabled)
+# ---------------------------------------------------------------------------
+
+def prepare_throughput_dataset(
+    source_path: str,
+    input_len: int,
+    output_len: int,
+    num_samples: int,
+    cache_dir: Optional[Path] = None,
+) -> Optional[str]:
+    """Build a JSONL file with *num_samples* prompts of approximately *input_len* tokens.
+
+    Unlike ``prepare_long_context_datasets``, this function allows document reuse
+    across samples.  That is safe here because prefix caching is disabled on all
+    throughput-study servers — repeated token sequences in different requests carry
+    zero KV-cache benefit, so there is no measurement artifact.
+
+    Each sample is constructed by concatenating successive papers from the source
+    JSONL (cycling when the source list is exhausted) and truncating to *input_len*
+    tokens.  Successive samples start at different offsets so requests within the
+    same guidellm run have meaningfully different content.
+
+    Args:
+        source_path: Path to a JSONL file with 'prompt' column.
+        input_len:   Target input length in tokens.
+        output_len:  'output_tokens_count' value written to each JSONL row.
+        num_samples: Number of samples to write (256 for c=128; smaller concurrencies
+                     use --data-samples N to read only the first N rows).
+        cache_dir:   Directory for the output file.  Defaults to /root.
+
+    Returns:
+        Path to the written JSONL, or None on failure.
+    """
+    if cache_dir is None:
+        cache_dir = Path("/root")
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    label = f"{input_len // 1024}k" if input_len >= 1024 else str(input_len)
+    src_stem = Path(source_path).stem
+    # _v1 suffix: throughput variant (cyclic, PC-off safe).
+    out_path = cache_dir / f"throughput_{src_stem}_{label}_v1.jsonl"
+
+    if out_path.exists():
+        existing = sum(1 for l in out_path.read_text().splitlines() if l.strip())
+        if existing >= num_samples:
+            print(
+                f"  Throughput dataset {label}: using cached {out_path} ({existing} samples)",
+                flush=True,
+            )
+            return str(out_path)
+        else:
+            print(
+                f"  Throughput dataset {label}: cached file has {existing}/{num_samples} samples — regenerating",
+                flush=True,
+            )
+            out_path.unlink()
+
+    # Read source prompts
+    try:
+        source_rows: List[str] = []
+        with open(source_path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    row = json.loads(line)
+                    if row.get("prompt"):
+                        source_rows.append(row["prompt"])
+    except Exception as e:
+        print(f"  WARNING: Cannot read throughput source '{source_path}': {e}", flush=True)
+        return None
+
+    if not source_rows:
+        print(f"  WARNING: No prompts found in '{source_path}'", flush=True)
+        return None
+
+    # Papers needed per sample: ceiling of target_tokens / mean_paper_tokens
+    mean_paper_tokens = sum(len(t.split()) / _WORDS_PER_TOKEN for t in source_rows) / len(source_rows)
+    papers_per_sample = max(1, int(input_len / mean_paper_tokens) + 1)
+
+    n_src = len(source_rows)
+    written = 0
+    with open(out_path, "w") as f:
+        for i in range(num_samples):
+            # Cyclic selection: each sample starts at a different position so
+            # requests within a run have different leading content.
+            start = (i * papers_per_sample) % n_src
+            papers: List[str] = []
+            for j in range(papers_per_sample):
+                papers.append(source_rows[(start + j) % n_src])
+            combined = " ".join(papers)
+            truncated = _truncate_to_tokens(combined, input_len)
+            json.dump({"prompt": truncated, "output_tokens_count": output_len}, f)
+            f.write("\n")
+            written += 1
+
+    print(
+        f"  Throughput dataset {label}: {written} samples "
+        f"(~{papers_per_sample} papers/sample, cyclic) → {out_path}",
+        flush=True,
+    )
+    return str(out_path)

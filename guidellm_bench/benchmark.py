@@ -66,21 +66,21 @@ def run_guidellm(
             f"--data {dataset_path}",
             # 'prompt' and 'output_tokens_count' are guidellm defaults — no mapper needed.
             # output_tokens_count maps to max_tokens in the completions request.
-            "--data-samples -1",
+            f"--data-samples {data_samples}",
         ]
-        effective_requests = 10 if lc_mode else 30  # all AIME / LC slice size
+        effective_requests = num_requests_override or (10 if lc_mode else 30)
     else:
         data_args = [f"--data 'prompt_tokens={input_len},output_tokens={output_len}'"]
         effective_requests = num_prompts
 
     # ---- profile / limits -------------------------------------------
     if lc_mode:
-        # Long-context slice: serial, no warmup/cooldown (only 10 samples)
+        # Long-context slice: serial, no warmup/cooldown (small sample count)
         profile_args = [
             "--profile synchronous",
             f"--max-requests {effective_requests}",
             "--max-errors 5",
-            "--max-seconds 900",
+            f"--max-seconds {max_seconds}",
         ]
     elif sweep:
         profile_args = [
@@ -89,7 +89,7 @@ def run_guidellm(
             "--warmup 0.1",      # exclude first ~10% of requests (XPU JIT spike)
             "--cooldown 0.1",    # exclude last  ~10% of requests (tail effects)
             "--max-errors 5",    # abort early on repeated failures
-            "--max-seconds 900", # hard wall-clock limit per benchmark (Qwen3-30B needs ~18s/req × 30)
+            f"--max-seconds {max_seconds}", # hard wall-clock limit per benchmark
         ]
     else:
         profile_args = [
