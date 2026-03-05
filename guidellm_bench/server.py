@@ -314,6 +314,8 @@ def stop_server(proc: Optional[subprocess.Popen] = None) -> None:
     """
     print("  Stopping server (SIGTERM → wait → SIGKILL)...", flush=True)
 
+    _sigkill_used = False
+
     # Step 1: SIGTERM the Popen handle (the bash --login wrapper)
     if proc:
         try:
@@ -348,6 +350,7 @@ def stop_server(proc: Optional[subprocess.Popen] = None) -> None:
     else:
         # Deadline exceeded — escalate to SIGKILL as last resort
         print("  WARNING: graceful shutdown timed out — sending SIGKILL", flush=True)
+        _sigkill_used = True
         if proc:
             try:
                 proc.kill()
@@ -363,10 +366,15 @@ def stop_server(proc: Optional[subprocess.Popen] = None) -> None:
     except OSError:
         pass
     # XPU driver releases VRAM asynchronously after process exit.  Without this
-    # pause, the next vllm server attempting to load the model may OOM on a
-    # specific GPU tile whose VRAM hasn't been reclaimed yet (observed: Worker_TP2
-    # OOM during tp4+async-pc startup immediately after tp2 server was stopped).
-    time.sleep(10)
+    # pause, the next vllm server attempting to load the model may OOM or hit an
+    # XPU kernel registration hang (OperatorEntry.cpp:208) because xe-destroy-wq
+    # workers haven't finished cleaning up GPU device handles.
+    #
+    # After a clean SIGTERM exit, 10s is sufficient (Lesson 34).
+    # After a forced SIGKILL the driver cleanup is much slower — use 60s to be safe.
+    _drain = 60 if _sigkill_used else 10
+    print(f"  Waiting {_drain}s for XPU driver VRAM drain...", flush=True)
+    time.sleep(_drain)
     print("  Server stopped.", flush=True)
 
 
