@@ -281,19 +281,31 @@ def wait_for_server(
                 if _log_has_startup_complete(log_path):
                     print("  Server logged 'Application startup complete' — not a hang, continuing to poll...", flush=True)
                     continue
-                # Only a true XPU hang if the process is still alive.
-                # A crashed process (proc.poll() is not None) means a model
-                # loading failure — return False, don't reboot the host.
+                # Only a true XPU hang if the process is still alive AND
+                # not actively consuming CPU (a loading server has high CPU;
+                # a hung server idles at ~0%).
                 proc_alive = (proc is None) or (proc.poll() is None)
-                if proc_alive:
-                    raise XpuKernelHangError(
-                        f"XPU kernel registration hang detected after {elapsed}s "
-                        f"(OperatorEntry.cpp:208 in server log, process alive but never healthy). "
-                        f"Container must be recreated."
-                    )
-                else:
+                if not proc_alive:
                     print("  Server process has exited (crash, not XPU hang) — treating as startup failure.", flush=True)
                     return False
+                # Check CPU usage: if vLLM workers are actively running,
+                # they're making progress — keep polling rather than rebooting.
+                try:
+                    cpu_out = subprocess.run(
+                        ["bash", "-c", "ps -eo pid,pcpu --no-headers | awk '$2+0 > 5 {sum += $2} END {print sum+0}'"],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    total_cpu = float(cpu_out.stdout.strip() or "0")
+                    if total_cpu > 20:
+                        print(f"  OperatorEntry.cpp:208 present but total CPU={total_cpu:.0f}% — server is actively loading, not hung. Continuing to poll...", flush=True)
+                        continue
+                except Exception:
+                    pass
+                raise XpuKernelHangError(
+                    f"XPU kernel registration hang detected after {elapsed}s "
+                    f"(OperatorEntry.cpp:208 in server log, process alive but never healthy). "
+                    f"Container must be recreated."
+                )
 
     print(f"  ERROR: server did not become ready within {timeout}s", flush=True)
     return False

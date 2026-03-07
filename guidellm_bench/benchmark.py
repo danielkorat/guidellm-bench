@@ -7,6 +7,7 @@ container-native; no docker exec wrapping needed.
 import json
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -116,6 +117,16 @@ def run_guidellm(
         ["bash", "--login", "-c", f"{_PREAMBLE} && {cmd}"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
     )
+    # Hard watchdog: guidellm may ignore --max-seconds when the backend is dead
+    # (tight retry loop produces no output, blocking the readline loop indefinitely).
+    # Kill the subprocess unconditionally after max_seconds + 120s grace.
+    _hard_limit = max_seconds + 120
+    def _watchdog():
+        print(f"  guidellm hard timeout ({_hard_limit}s) — killing subprocess", flush=True)
+        proc.kill()
+    _timer = threading.Timer(_hard_limit, _watchdog)
+    _timer.daemon = True
+    _timer.start()
     try:
         with open(log_path, "w") as f:
             for line in proc.stdout:
@@ -125,6 +136,7 @@ def run_guidellm(
     except Exception as _exc:
         print(f"  guidellm stdout read error: {_exc}", flush=True)
     finally:
+        _timer.cancel()
         try:
             proc.wait(timeout=30)
         except subprocess.TimeoutExpired:
