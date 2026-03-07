@@ -337,10 +337,13 @@ by repeated `Still waiting... Xs elapsed` health-check messages, the XPU driver 
 the container is corrupted and the server will **never** become healthy.
 
 **This is now handled automatically:**
-- `wait_for_server()` scans the server log at each 60s interval.
-- If `OperatorEntry.cpp:208` is present AND ≥120s have elapsed with no healthy response,
-  it raises `XpuKernelHangError`.
-- The container-side bench.py catches this and exits with **code 42**.
+- `wait_for_server()` scans the server log every 60s.
+- Hang is declared only when **both** conditions hold after `_HANG_DETECT_AFTER_S` (300s):
+  1. `OperatorEntry.cpp:208` is present in the log (driver registered XPU kernels)
+  2. **No** `EngineCore` or `Worker_TP` lines exist (workers never started)
+  - `OperatorEntry.cpp:208` alone is **not** a hang — it appears within the first ~5s of every healthy startup too.
+- `_log_has_xpu_hang()` in `server.py` implements this two-condition check.
+- The container-side bench.py catches `XpuKernelHangError` and exits with **code 42**.
 - The host-side re-exec guard detects exit code 42, prints a warning, and **prompts for confirmation** before calling `reboot`.
 - In non-interactive sessions (nohup), the reboot is skipped and must be done manually.
 
@@ -350,6 +353,26 @@ After reboot, resume manually:
 ```
 
 Do NOT attempt container recreation — D-state vllm processes block `docker rm -f` even with SIGKILL.
+
+### 21b. Auto-Resume Systemd Service
+**RULE**: Every new run automatically installs a systemd service so it resumes after an unexpected reboot/power-cycle without any manual action.
+- `_write_resume_script(out_dir, argv)` in `bench.py` writes `{out_dir}/resume.sh` (chmod 755) and calls `_install_resume_service()`.
+- `_install_resume_service(resume_script)` writes `/etc/systemd/system/guidellm-resume.service` and runs `systemctl daemon-reload && systemctl enable`.
+- Service fires after `docker.service` is ready; starts the container if stopped, then `nohup ./bench.py --throughput --resume {out_dir} > /dev/null 2>&1 &`.
+- `_disable_resume_service()` is called at the **end** of every run mode (`_run_throughput`, `_run_ablation`, main sweep) to prevent the service from re-firing on the next normal boot.
+- Service file: `/etc/systemd/system/guidellm-resume.service`. Check with: `systemctl is-active guidellm-resume.service`.
+
+### 21c. guidellm Watchdog Timer
+**RULE**: `run_guidellm()` in `benchmark.py` installs a `threading.Timer` hard-kill at `max_seconds + 120s`. If guidellm doesn't finish before that deadline, the subprocess is SIGKILLed unconditionally. This prevents the 17h hang observed when vLLM crashes mid-run and guidellm retries forever against a dead backend, ignoring `--max-seconds`.
+```python
+_hard_limit = max_seconds + 120
+_timer = threading.Timer(_hard_limit, lambda: proc.kill())
+_timer.start()
+try:
+    proc.wait()
+finally:
+    _timer.cancel()
+```
 
 ### 22. Server Reuse via server_status.json
 **RULE**: `bench.py` **never stops the server at end of run**. `server_status.json` is left on
@@ -614,7 +637,7 @@ Cached to `out_dir/datasets/{safe_name}_{split}_v1.jsonl`. Output: `{prompt, out
 #### `max_num_batched_tokens` for large-context studies
 **RULE**: Set `max_num_batched_tokens ≥ max_input_len` when running large-context (16k+) benchmarks. The default of `8192` causes vLLM to chunk a 96k-token prefill over ~12 forward passes, serialising the KV-cache write and inflating TTFT by 10-50×. `THROUGHPUT_MAX_NUM_BATCHED_TOKENS = 131072` matches the full context window.
 
-**Last Updated**: March 7, 2026 — Added `--throughput` mode: `_run_throughput()` in `bench.py`, `build_throughput_dashboard_html()` in `dashboard.py`, `prepare_throughput_dataset()` in `dataset.py`, `get_throughput_configs()` + THROUGHPUT_* constants in `config.py`; 2 server configs (tp8+async, tp8+async+ep); exactly 1 restart; 4 concurrencies × 4 input lengths × 1 output length; 2×c samples; max_num_batched_tokens=131072; throughput_dashboard.html with per-concurrency tabs + Concurrency Effects tab; results → `./throughput_results/`; Rule 33 added; repo structure + Common Commands updated.
+**Last Updated**: March 7, 2026 — Fixed XPU hang detection (Lesson 40/43: `OperatorEntry.cpp:208` is normal; real hang requires no `EngineCore`/`Worker_TP` lines; `_HANG_DETECT_AFTER_S` raised 120→300s); added guidellm watchdog timer (Lesson 42, Rule 21c); added auto-resume systemd service (Rule 21b); GPU count check after reboot (Lesson 41). Previous: Added `--throughput` mode: `_run_throughput()` in `bench.py`, `build_throughput_dashboard_html()` in `dashboard.py`, `prepare_throughput_dataset()` in `dataset.py`, `get_throughput_configs()` + THROUGHPUT_* constants in `config.py`; 2 server configs (tp8+async, tp8+async+ep); exactly 1 restart; 4 concurrencies × 4 input lengths × 1 output length; 2×c samples; max_num_batched_tokens=131072; throughput_dashboard.html with per-concurrency tabs + Concurrency Effects tab; results → `./throughput_results/`; Rule 33 added; repo structure + Common Commands updated.
 **Primary Maintainer**: Daniel Korat, Intel
 
 ---
@@ -665,3 +688,6 @@ Mistakes that happened once and must not repeat:
 | 38 | The old ablation throughput tab ran a flat single-benchmark (no LC lengths, bar charts only, 4 configs) and called `_generate_conclusions(lc_data, throughput_data=throughput_data)` BEFORE the `throughput_data` dict was loaded — so EP insight notes always showed "n/a". | (1) Replace flat throughput benchmark with C=16 PHASE: 8 configs × 4 LC lengths → line charts (same structure as c=1 Overview tab) + 8k snapshot bars. (2) Always load `c16_data` **before** calling `_generate_conclusions()`. Files named `{cfg_name}_c16_lc{N}k_benchmarks.json`. Constants: `ABLATION_C16_CONCURRENCY=16`, `ABLATION_C16_SAMPLES=20`. |
 | 39 | After host reboot, `lsv-container` stops (no `--restart always` policy). The host-side re-exec guard called `docker exec lsv-container ...` directly — this fails silently with "container is not running", PID exits with non-zero code, stdout was `/dev/null`, and no log was ever created. | The re-exec guard now checks `docker inspect --format {{.State.Running}} lsv-container` first; if not `true`, runs `docker start lsv-container` + `time.sleep(3)` before the `docker exec`. No manual `docker start` required after a reboot. |
 | 40 | `_log_has_xpu_hang` only checked for the presence of `OperatorEntry.cpp:208`, which is ALWAYS emitted by the main vLLM process within the first ~5s of ANY startup (hang or not). At `_HANG_DETECT_AFTER_S=120s`, any server still loading (gpt-oss-20b tp=8 takes ~90–150s) was falsely declared hung and killed, even though the XPU was healthy. Confirmed: OPT-125m takes ~37s from `OperatorEntry` to `Application startup complete`, gpt-oss-20b tp=8 takes significantly longer. | The real hang signature is **workers never start**: only 1 OperatorEntry occurrence, no `EngineCore` or `Worker_TP` lines. Fixed `_log_has_xpu_hang` to require BOTH: (1) OperatorEntry.cpp:208 present AND (2) no `EngineCore\|Worker_TP` lines. Raised `_HANG_DETECT_AFTER_S` from 120 → 300s as an additional safety floor. Never declare a hang based on OperatorEntry alone. |
+| 41 | After reboot, `docker start lsv-container` was called while the XPU driver was still initialising. `--device /dev/dri:/dev/dri` captures only the device nodes present at container-start time. Driver initialises GPUs sequentially, so only 2 of 8 `renderD` nodes existed yet → container started with 2 GPUs → `tp=8` crashed with "device index out of range". | Added GPU count check in the re-exec guard: after ensuring the container is running, compare `ls /dev/dri/renderD* \| wc -l` on host vs inside the container. If mismatch, stop+rm the container and re-run `install.sh --skip-xpu-smi` to recreate it with the full device list. |
+| 42 | guidellm hung for 17 hours on `c=64/il=16k` after vLLM crashed mid-run. guidellm retried in a loop against the dead backend, silently ignoring `--max-seconds` (which only covers time-between-requests, not total wall-clock when the server is completely unreachable). | Added `threading.Timer(_hard_limit, lambda: proc.kill())` in `run_guidellm()` with `_hard_limit = max_seconds + 120`. If the subprocess hasn't finished within that wall-clock window it is SIGKILLed unconditionally. See Rule 21c. |
+| 43 | `_log_has_xpu_hang` declared a hang whenever `OperatorEntry.cpp:208` appeared in the log past 120s — but this warning is emitted by the main vLLM process within the first ~5s of **every** normal startup. gpt-oss-20b tp=8 takes 90–150s to fully load, so it was always killed as a false positive. Confirmed by running OPT-125m directly inside the container (same single OperatorEntry, then successful startup ~37s later). | Real hang = OperatorEntry present **AND** no `EngineCore`/`Worker_TP` lines (workers never registered). Raised `_HANG_DETECT_AFTER_S` 120 → 300s. See updated Rule 18 and Lesson 40. |

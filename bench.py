@@ -48,6 +48,35 @@ if not os.path.exists("/.dockerenv"):
         # Give container a moment to fully initialise before exec-ing into it.
         time.sleep(3)
 
+    # After the container is running, verify its GPU count matches the host.
+    # Race condition after reboot: the XPU driver creates device nodes
+    # sequentially; if docker start (or docker run) happens while the driver
+    # is still initialising, the container captures only the already-created
+    # nodes (e.g. 2 instead of 8).  Detect this and recreate the container.
+    _host_gpus = subprocess.run(
+        ["bash", "-c", "ls /dev/dri/renderD* 2>/dev/null | wc -l"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    _ctr_gpus = subprocess.run(
+        ["docker", "exec", "lsv-container", "bash", "-c",
+         "ls /dev/dri/renderD* 2>/dev/null | wc -l"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    if _host_gpus and _ctr_gpus and _host_gpus != _ctr_gpus:
+        print(
+            f"[bench] GPU count mismatch: host={_host_gpus}, container={_ctr_gpus}. "
+            "Recreating container to capture full device list...",
+            flush=True,
+        )
+        subprocess.call(["docker", "stop", "lsv-container"])
+        subprocess.call(["docker", "rm", "lsv-container"])
+        _install_sh = os.path.join(os.path.dirname(os.path.abspath(__file__)), "install.sh")
+        _install_rc = subprocess.call(["bash", _install_sh, "--skip-xpu-smi"])
+        if _install_rc != 0:
+            print("[bench] ERROR: install.sh failed during container recreation", flush=True)
+            sys.exit(1)
+        print("[bench] Container recreated with all GPUs ✓", flush=True)
+
     _cmd = (
         ["docker", "exec", "-w", "/root/guidellm-bench"]
         + _tty
