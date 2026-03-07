@@ -27,10 +27,15 @@ SERVER_STATUS_PATH = Path("/root/guidellm-bench/server_status.json")
 
 # When IPEX overrides PyTorch XPU kernels AND the server never becomes healthy,
 # the internal XPU driver is in a corrupted state that only a container
-# recreation can fix.  We detect this by looking for the OperatorEntry warning
-# in the server log once we've been waiting long enough.
-_HANG_PATTERN = _re.compile(r"OperatorEntry\.cpp:208")
-_HANG_DETECT_AFTER_S = 120  # seconds: raise at the 2nd "Still waiting" print
+# recreation can fix.  We detect this by looking for BOTH conditions:
+#   1. OperatorEntry.cpp:208 appears (IPEX kernel override — always present even
+#      in normal starts, so alone it is NOT sufficient to declare a hang).
+#   2. No EngineCore or Worker_TP lines — workers never initialised.
+# Condition 2 is the true discriminator: in a real startup, all tp workers
+# emit OperatorEntry warnings and EngineCore lines within ~60s of launch.
+_HANG_PATTERN     = _re.compile(r"OperatorEntry\.cpp:208")
+_WORKER_PATTERN   = _re.compile(r"EngineCore|Worker_TP")
+_HANG_DETECT_AFTER_S = 300  # seconds before checking — gpt-oss-20b tp=8 can take ~150s
 
 
 class XpuKernelHangError(RuntimeError):
@@ -44,11 +49,26 @@ class XpuKernelHangError(RuntimeError):
 
 
 def _log_has_xpu_hang(log_path: Optional[Path]) -> bool:
-    """Return True if the server log contains the OperatorEntry.cpp:208 warning."""
+    """Return True iff the server log shows the XPU kernel-registration hang.
+
+    A genuine hang has TWO simultaneous symptoms:
+      - OperatorEntry.cpp:208 appears (IPEX kernel override — emitted by the
+        main process within the first ~5 s of ANY startup, so alone it is
+        not a reliable signal).
+      - No EngineCore or Worker_TP lines — worker sub-processes never started.
+
+    If workers have started (EngineCore lines present) the server is loading
+    normally and we must keep waiting, regardless of how long it takes.
+    """
     if log_path is None or not log_path.exists():
         return False
     try:
-        return bool(_HANG_PATTERN.search(log_path.read_text()))
+        text = log_path.read_text()
+        if not _HANG_PATTERN.search(text):
+            return False          # OperatorEntry warning not yet emitted
+        if _WORKER_PATTERN.search(text):
+            return False          # workers started — legitimate slow startup
+        return True               # OperatorEntry present, workers never started
     except OSError:
         return False
 
