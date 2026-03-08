@@ -2073,8 +2073,12 @@ def build_throughput_dashboard_html(
     {THROUGHPUT_SAMPLES.get(c, "?")} requests, output = {THROUGHPUT_OUTPUT_LEN // 1024}k tokens, PC disabled.
   </div>
   <div class="row g-2">{charts_html}</div>
-</div>"""
-        conc_tab_panes += "\n".join(chart_js_lines)
+</div>
+<script>
+(function(){{
+  {chr(10).join(chart_js_lines)}
+}})();
+</script>"""
 
     # Concurrency Effects tab
     eff_nav = (
@@ -2121,6 +2125,31 @@ def build_throughput_dashboard_html(
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<script>
+function makeLineChart(canvasId, datasets, xLabel, yLabel) {{
+  const ctx = document.getElementById(canvasId);
+  if (!ctx || !datasets.length) return;
+  new Chart(ctx, {{
+    type: 'line',
+    data: {{ datasets }},
+    options: {{
+      responsive: true,
+      parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
+      plugins: {{
+        legend: {{ position: 'top' }},
+        tooltip: {{ callbacks: {{
+          label: ctx => ` ${{ctx.dataset.label}}: ${{ctx.parsed.y?.toFixed(1)}}`
+        }} }}
+      }},
+      scales: {{
+        x: {{ type: 'linear', title: {{ display: true, text: xLabel }},
+             ticks: {{ callback: v => v >= 1024 ? (v/1024)+'k' : v }} }},
+        y: {{ title: {{ display: true, text: yLabel }} }}
+      }}
+    }}
+  }});
+}}
+</script>
 <style>
   body {{ font-family: system-ui, sans-serif; background:#f8f9fa; }}
   .navbar-brand {{ font-weight:700; font-size:1.05rem; }}
@@ -2151,31 +2180,6 @@ def build_throughput_dashboard_html(
     {eff_tab_pane}
   </div>
 </div>
-<script>
-function makeLineChart(canvasId, datasets, xLabel, yLabel) {{
-  const ctx = document.getElementById(canvasId);
-  if (!ctx || !datasets.length) return;
-  new Chart(ctx, {{
-    type: 'line',
-    data: {{ datasets }},
-    options: {{
-      responsive: true,
-      parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
-      plugins: {{
-        legend: {{ position: 'top' }},
-        tooltip: {{ callbacks: {{
-          label: ctx => ` ${{ctx.dataset.label}}: ${{ctx.parsed.y?.toFixed(1)}}`
-        }} }}
-      }},
-      scales: {{
-        x: {{ type: 'linear', title: {{ display: true, text: xLabel }},
-             ticks: {{ callback: v => v >= 1024 ? (v/1024)+'k' : v }} }},
-        y: {{ title: {{ display: true, text: yLabel }} }}
-      }}
-    }}
-  }});
-}}
-</script>
 </body>
 </html>"""
 

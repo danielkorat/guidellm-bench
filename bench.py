@@ -430,6 +430,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
              "Results → ./throughput_results/.",
     )
     p.add_argument(
+        "--no-ep", action="store_true", dest="no_ep",
+        help="With --throughput: skip Server B (EP config). Run only Server A "
+             "(tp8+async, no expert parallelism).",
+    )
+    p.add_argument(
         "--resume", metavar="DIR", nargs="?", const="",
         help="Resume an interrupted run. With a DIR argument, reuses that directory. "
              "Without a DIR argument, automatically resumes the latest run in the "
@@ -612,6 +617,7 @@ def main() -> None:
             timeout_startup=timeout_startup,
             model_mem_gib=model_mem_gib,
             resume=args.resume,
+            no_ep=getattr(args, "no_ep", False),
         )
         return  # throughput handled; skip standard loop
 
@@ -1190,6 +1196,7 @@ def _run_throughput(
     timeout_startup: int,
     model_mem_gib: dict,
     resume,
+    no_ep: bool = False,
 ) -> None:
     """Throughput study: concurrency × input_length sweep for gpt-oss-20b on Intel XPU.
 
@@ -1245,6 +1252,9 @@ def _run_throughput(
 
     # ── Config matrix ────────────────────────────────────────────────────────
     thr_cfgs = get_throughput_configs()    # [Server A, Server B]
+    if no_ep:
+        thr_cfgs = [c for c in thr_cfgs if not c.expert_parallel_size]
+        print("  --no-ep: skipping Server B (EP config)", flush=True)
     concurrencies_for_cfg: dict[str, list[int]] = {
         thr_cfgs[0].name: list(THROUGHPUT_CONCURRENCIES),            # all
         thr_cfgs[1].name: [c for c in THROUGHPUT_CONCURRENCIES if c > 1],  # EP: c>1 only
