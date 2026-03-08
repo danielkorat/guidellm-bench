@@ -249,12 +249,22 @@ def _extract_lc_metrics(data: dict) -> Dict[str, Optional[float]]:
     # indicate dropped connections recorded as "successful" by guidellm.
     lat_vals = [r.get("request_latency") for r in reqs if r.get("request_latency") is not None]
     clean_reqs = reqs
+    corrupt = False  # will be True when the run was clearly interrupted mid-stream
     if lat_vals:
         max_lat = max(lat_vals)
         min_valid_lat = max_lat * 0.05
         filtered = [r for r in reqs if (r.get("request_latency") or 0) >= min_valid_lat]
         if filtered:  # only replace if we kept at least 1 request
             clean_reqs = filtered
+            # If ≥25% of requests were dropped by the filter, the run was interrupted
+            # mid-stream.  The surviving "high-latency" tail is also unreliable —
+            # e.g. 12.6s per request when physics dictates ~1655s at 101ms ITL ×
+            # 16384 tokens.  Null out all latency-derived metrics so charts do not
+            # plot bogus values.  TTFT and ITL remain valid: they come from
+            # streaming chunk timestamps, not total request latency.
+            n_dropped = len(lat_vals) - len(filtered)
+            if n_dropped >= len(lat_vals) * 0.25:
+                corrupt = True
 
     def med(field: str, reqs_in=None) -> Optional[float]:  # noqa: F811
         return _median([r.get(field) for r in (reqs_in if reqs_in is not None else clean_reqs)])
@@ -275,9 +285,12 @@ def _extract_lc_metrics(data: dict) -> Dict[str, Optional[float]]:
     return {
         "ttft_ms":        med("time_to_first_token_ms"),
         "itl_ms":         med("inter_token_latency_ms"),
-        "latency_s":      med_lat,
-        "throughput_rps": rps,
-        "throughput_tps": med("output_tokens_per_second"),
+        # Latency-derived metrics are nulled when the run was interrupted (corrupt=True)
+        # so that chart series receive None instead of physically impossible values.
+        "latency_s":      None if corrupt else med_lat,
+        "throughput_rps": None if corrupt else rps,
+        "throughput_tps": None if corrupt else med("output_tokens_per_second"),
+        "_corrupt":       corrupt,
     }
 
 
@@ -1967,6 +1980,16 @@ def build_throughput_dashboard_html(
         out_dir, cfg_names_ord, THROUGHPUT_CONCURRENCIES, THROUGHPUT_INPUT_LENGTHS,
     )
 
+    # Cells where latency-derived metrics were suppressed due to interrupted runs.
+    # Keyed by (concurrency, input_len) so the warning banner knows which tab/input.
+    corrupt_cells: set = {
+        (c, il)
+        for cfg_data in td.values()
+        for c, il_data in cfg_data.items()
+        for il, m in il_data.items()
+        if m.get("_corrupt")
+    }
+
     if not td:
         print("  No throughput data found for dashboard", flush=True)
         return None
@@ -2033,7 +2056,7 @@ def build_throughput_dashboard_html(
                 if pts:
                     color = COLORS[color_idx % len(COLORS)]
                     out.append({
-                        "label": f"{cfg_label(cfg_name)} {il_label(il)}",
+                        "label": il_label(il),
                         "data": pts,
                         "borderColor": color, "backgroundColor": color + "55",
                         "tension": 0.3, "spanGaps": True,
@@ -2105,13 +2128,26 @@ def build_throughput_dashboard_html(
             f'href="#{tab_id}">c={c}</a></li>\n'
         )
         ep_note = " (no-EP only)" if c == 1 else ""
+        # Warning banner when any input_len in this concurrency tab has corrupt data
+        _corrupt_ils_in_tab = sorted({il for (cc, il) in corrupt_cells if cc == c})
+        _corrupt_banner = (
+            f'  <div class="alert alert-warning py-2 px-3 mb-2" role="alert" '
+            f'style="font-size:.82rem">'
+            f'<strong>&#9888; Incomplete run data</strong> &mdash; '
+            f'<strong>tok/s and per-request latency omitted</strong> for '
+            f'{", ".join(str(il // 1024) + "k" for il in _corrupt_ils_in_tab)} '
+            f'(run was interrupted; partial requests recorded as successful by guidellm). '
+            f'<strong>TTFT and ITL are valid</strong> (measured from streaming chunk timestamps).'
+            f'</div>\n'
+            if _corrupt_ils_in_tab else ""
+        )
         conc_tab_panes += f"""
 <div class="tab-pane fade {show}" id="{tab_id}">
   <div class="p-2 mb-2 bg-light rounded" style="font-size:.82rem">
     <strong>Concurrency = {c}{ep_note}</strong> &mdash;
     {THROUGHPUT_SAMPLES.get(c, "?")} requests, output = {THROUGHPUT_OUTPUT_LEN // 1024}k tokens, PC disabled.
   </div>
-  <div class="row g-2">{charts_html}</div>
+{_corrupt_banner}  <div class="row g-2">{charts_html}</div>
 </div>
 <script>
 (function(){{
@@ -2136,14 +2172,14 @@ def build_throughput_dashboard_html(
       </div>
     </div>"""
         ds_json = json.dumps(conc_eff_datasets(mk))
-        eff_js_lines.append(f'  makeLineChart("{cid}", {ds_json}, "Request rate (req/s)", "{mlabel}");')
+        eff_js_lines.append(f'  makeLineChart("{cid}", {ds_json}, "Concurrency", "{mlabel}", true, true);')
 
     eff_tab_pane = f"""
 <div class="tab-pane fade" id="tab-conc-eff">
   <div class="p-2 mb-2 bg-light rounded" style="font-size:.82rem">
     <strong>Concurrency Effects</strong> &mdash;
     TTFT and output tok/s vs concurrency.  Each line = one input_len.
-    PC disabled throughout.
+    PC disabled throughout. Legend = input length.
   </div>
   <div class="row g-2">{eff_charts_html}</div>
 </div>
@@ -2209,12 +2245,11 @@ def build_throughput_dashboard_html(
     # ITL penalty c=1→c=16
     _itl_penalty_32 = f"{_itl_c16_32 / _itl_32:.1f}×" if (_itl_32 and _itl_c16_32) else "n/a"
     _itl_penalty_96 = f"{_itl_c16_96 / _itl_96:.1f}×" if (_itl_96 and _itl_c16_96) else "n/a"
-    # Throughput gain c=1→c=16
-    _tps_gain_32 = f"{_tps_c16_32 / _tps_32:.0f}×" if (_tps_32 and _tps_c16_32) else "n/a"
-    _tps_gain_96 = f"{_tps_c16_96 / _tps_96:.0f}×" if (_tps_96 and _tps_c16_96) else "n/a"
 
-    # c=1 total request latency ≈ TTFT + ITL × output_tokens
-    _lat_16 = _ttft_16 + (_itl_16 or 0) * 16384 if _ttft_16 else None   # approx ms
+    # Derive corruption flags directly from td (already populated by _extract_lc_metrics).
+    # _corrupt=True means latency-derived metrics (tok/s, latency_s) were nulled out.
+    _c16_32k_corrupt = bool((td.get(_cfg, {}).get(16, {}).get(32768) or {}).get("_corrupt"))
+    _c16_96k_corrupt = bool((td.get(_cfg, {}).get(16, {}).get(98304) or {}).get("_corrupt"))
 
     _active_c_str = ", ".join(f"c={c}" for c in active_concurrencies)
 
@@ -2290,22 +2325,21 @@ def build_throughput_dashboard_html(
         </div>
         <div class="card-body" style="font-size:.85rem">
           <table class="table table-sm table-borderless mb-2" style="font-size:.83rem">
-            <thead><tr><th>Input</th><th>TTFT c=1→16</th><th>ITL c=1→16</th><th>Tok/s gain</th></tr></thead>
+            <thead><tr><th>Input</th><th>TTFT c=1→c=16</th><th>ITL c=1→c=16</th></tr></thead>
             <tbody>
               <tr><td>32k</td>
                   <td class="text-success fw-semibold">{_ms(_ttft_32)} → {_ms(_ttft_c16_32)} ({_speedup_32}↓)</td>
-                  <td class="text-danger">{_ms(_itl_32)} → {_ms(_itl_c16_32)} ({_itl_penalty_32}↑)</td>
-                  <td class="text-success">{_tps_gain_32}</td></tr>
+                  <td class="text-danger">{_ms(_itl_32)} → {_ms(_itl_c16_32)} ({_itl_penalty_32}↑)</td></tr>
               <tr><td>96k</td>
                   <td class="text-success fw-semibold">{_ms(_ttft_96)} → {_ms(_ttft_c16_96)} ({_speedup_96}↓)</td>
-                  <td class="text-danger">{_ms(_itl_96)} → {_ms(_itl_c16_96)} ({_itl_penalty_96}↑)</td>
-                  <td class="text-success">{_tps_gain_96}</td></tr>
+                  <td class="text-danger">{_ms(_itl_96)} → {_ms(_itl_c16_96)} ({_itl_penalty_96}↑)</td></tr>
             </tbody>
           </table>
-          <p class="mb-0 text-muted" style="font-size:.8rem">Batching to c=16 cuts TTFT at 32k by {_speedup_32}
-          but raises ITL {_itl_penalty_32} — the scheduler shares GPU time across
-          16 concurrent decode streams. At 96k the TTFT benefit is smaller ({_speedup_96})
-          because the long prefill dominates regardless of scheduling.</p>
+          <p class="mb-0 text-muted" style="font-size:.8rem">
+          Batching to c=16 cuts TTFT at 32k by {_speedup_32} but raises ITL {_itl_penalty_32}.
+          At 96k the TTFT benefit shrinks to {_speedup_96} — the long prefill dominates regardless of scheduling.
+          {'<br><strong class="text-danger">⚠ Tok/s and per-request latency are unreliable in these c=16 runs</strong> (partial requests recorded as successful by guidellm during the interrupted run). TTFT and ITL are valid — they come from streaming chunk timestamps, not total latency.' if (_c16_32k_corrupt or _c16_96k_corrupt) else ''}
+          </p>
         </div>
       </div>
     </div>
@@ -2320,13 +2354,12 @@ def build_throughput_dashboard_html(
             <li><strong>Latency-critical (c=1):</strong> ITL is flat at ~{_fmt(_itl_min, 0) if _itl_min else "n/a"}ms.
             TTFT is the bottleneck — keep inputs ≤48k where possible
             ({_ms(_ttft_48)} vs {_ms(_ttft_96)} at 96k).</li>
-            <li class="mt-1"><strong>Throughput (c=16):</strong> {_tps_gain_32} more output tok/s
-            at 32k vs c=1 ({_fmt(_tps_c16_32, 0)} vs {_fmt(_tps_32, 0)} tok/s).
-            TTFT at 32k drops to just {_ms(_ttft_c16_32)} — highly efficient for
-            async/batch workloads.</li>
+            <li class="mt-1"><strong>Throughput (c=16):</strong> TTFT at 32k drops to
+            {_ms(_ttft_c16_32)} — {_speedup_32} faster than c=1, highly efficient for async/batch
+            workloads.
+            {'<span class="text-danger">(Per-request tok/s unavailable — runs were interrupted; see data quality note above.)</span>' if (_c16_32k_corrupt or _c16_96k_corrupt) else f'Expected aggregate throughput: ~{_fmt(16000/_itl_c16_32, 0) if _itl_c16_32 else "n/a"} tok/s (16 / ITL).'}\n            </li>
             <li class="mt-1"><strong>96k inputs at c=16:</strong> TTFT still {_ms(_ttft_c16_96)}
-            ({_speedup_96} improvement) but still {_ms(_ttft_c16_96)} absolute.
-            Throughput gain is {_tps_gain_96}× at {_fmt(_tps_c16_96, 0)} tok/s.
+            ({_speedup_96} improvement) but still long in absolute terms.
             Use only when latency budget allows.</li>
             <li class="mt-1"><strong>c=64/c=128:</strong> pending — needed to characterise
             saturation point and peak throughput.</li>
@@ -2350,7 +2383,7 @@ def build_throughput_dashboard_html(
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 <script>
-function makeLineChart(canvasId, datasets, xLabel, yLabel) {{
+function makeLineChart(canvasId, datasets, xLabel, yLabel, rawX, showLegend) {{
   const ctx = document.getElementById(canvasId);
   if (!ctx || !datasets.length) return;
   new Chart(ctx, {{
@@ -2360,7 +2393,7 @@ function makeLineChart(canvasId, datasets, xLabel, yLabel) {{
       responsive: true,
       parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
       plugins: {{
-        legend: {{ display: false }},
+        legend: {{ display: !!showLegend }},
         tooltip: {{ callbacks: {{
           label: ctx => {{
             const y = ctx.parsed.y;
@@ -2372,7 +2405,7 @@ function makeLineChart(canvasId, datasets, xLabel, yLabel) {{
       }},
       scales: {{
         x: {{ type: 'linear', title: {{ display: true, text: xLabel }},
-             ticks: {{ callback: v => Math.round(v/1024)+'k' }} }},
+             ticks: {{ callback: rawX ? v => v : v => Math.round(v/1024)+'k' }} }},
         y: {{ title: {{ display: true, text: yLabel }} }}
       }}
     }}
