@@ -435,6 +435,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
              "(tp8+async, no expert parallelism).",
     )
     p.add_argument(
+        "--agent", action="store_true",
+        help="Run deep-research agent benchmark: measures TTFT vs (N_new, N_cached) matrix "
+             "at 6 cached-context sizes × 4 new-token sizes, plus realistic multi-turn "
+             "agent-session simulations. Uses gpt-oss-20b tp8+async+PC. "
+             "Results → ./agent_results/.",
+    )
+    p.add_argument(
+        "--skip-matrix", action="store_true", dest="skip_matrix",
+        help="With --agent: skip the TTFT matrix, run only scenario simulations.",
+    )
+    p.add_argument(
+        "--skip-scenarios", action="store_true", dest="skip_scenarios",
+        help="With --agent: skip scenario simulations, run only the TTFT matrix.",
+    )
+    p.add_argument(
         "--resume", metavar="DIR", nargs="?", const="",
         help="Resume an interrupted run. With a DIR argument, reuses that directory. "
              "Without a DIR argument, automatically resumes the latest run in the "
@@ -485,11 +500,13 @@ def main() -> None:
     results_dir      = get("results_dir", "results_dir")
     timeout_startup  = get("timeout_startup", "timeout_startup")
 
-    # Ablation / throughput modes use their own results directories
+    # Ablation / throughput / agent modes use their own results directories
     if getattr(args, "ablation", False):
         results_dir = "./ablation_results"
     if getattr(args, "throughput", False):
         results_dir = "./throughput_results"
+    if getattr(args, "agent", False):
+        results_dir = "./agent_results"
 
     # Auto-clean incomplete run dirs (no _benchmarks.json) from prior aborted runs.
     # Skip when resuming — the target dir may legitimately have zero files yet.
@@ -558,6 +575,11 @@ def main() -> None:
             # _find_last_run_dataset inside _run_ablation).  Leave dataset_path=None
             # so that discovery runs; _run_ablation falls back to AIME if nothing found.
             dataset_path = None
+        elif getattr(args, "agent", False):
+            # Agent benchmark uses FRAMES (google/frames-benchmark) for both the
+            # matrix corpus and scenarios.  Auto-builds/discovers inside
+            # run_agent_bench via _prepare_frames_corpus().  Leave None here.
+            dataset_path = None
         else:
             dataset_path = prepare_aime_dataset(output_tokens=1024)
 
@@ -590,6 +612,21 @@ def main() -> None:
             mem = parse_model_mem_gib(p)
             if mem is not None:
                 model_mem_gib[cfg_name] = mem
+
+    # ------------------------------------------------------------------
+    # Agent benchmark: TTFT matrix + scenario simulations
+    # ------------------------------------------------------------------
+    if getattr(args, "agent", False):
+        _run_agent(
+            out_dir=out_dir,
+            log_dir=log_dir,
+            dataset_path=dataset_path,
+            timeout_startup=timeout_startup,
+            resume=args.resume,
+            skip_matrix=getattr(args, "skip_matrix", False),
+            skip_scenarios=getattr(args, "skip_scenarios", False),
+        )
+        return
 
     # ------------------------------------------------------------------
     # Ablation mode: LC-only study; bypass the standard config matrix loop
@@ -823,6 +860,74 @@ def main() -> None:
 
 # ---------------------------------------------------------------------------
 # Ablation study
+# ---------------------------------------------------------------------------
+
+def _run_agent(
+    out_dir: Path,
+    log_dir: Path,
+    dataset_path: Optional[str],
+    timeout_startup: int,
+    resume,
+    skip_matrix: bool,
+    skip_scenarios: bool,
+) -> None:
+    """Deep-research agent benchmark: TTFT matrix (131k window) + real ReAct scenarios.
+
+    Server config: gpt-oss-20b  tp=8  async-scheduling  prefix-caching
+    max_model_len=131072        max_num_batched_tokens=131072
+    Scenarios: real ReAct loop on FRAMES benchmark (google/frames-benchmark).
+    """
+    from .agent_bench import (
+        run_agent_bench, get_agent_server_config,
+        AGENT_MAX_MODEL_LEN, AGENT_MAX_BATCHED,
+    )
+    from .server import (
+        start_server, wait_for_server, stop_server,
+        server_is_reusable, write_server_status,
+        parse_model_mem_gib,
+    )
+
+    agent_cfg = get_agent_server_config()
+    max_model_len = AGENT_MAX_MODEL_LEN
+    max_batched   = AGENT_MAX_BATCHED
+
+    log_dir.mkdir(exist_ok=True)
+    server_log = log_dir / f"{agent_cfg.name}_server.log"
+
+    print(f"\n[agent] Server config: {agent_cfg.name}", flush=True)
+    print(f"  max_model_len={max_model_len:,}  max_num_batched_tokens={max_batched:,}", flush=True)
+
+    proc = None
+    if server_is_reusable(agent_cfg, max_model_len):
+        print("  Reusing running server ✓", flush=True)
+    else:
+        stop_server()
+        print("  Starting server...", flush=True)
+        proc = start_server(
+            agent_cfg, max_model_len, server_log,
+            max_num_batched_tokens=max_batched,
+        )
+        if not wait_for_server(timeout_startup, server_log, proc):
+            print("[agent] ERROR: server failed to start", flush=True)
+            stop_server(proc)
+            return
+        write_server_status(agent_cfg, max_model_len, proc.pid, server_log)
+        mem = parse_model_mem_gib(server_log)
+        if mem:
+            print(f"  Model memory: {mem:.1f} GiB × {agent_cfg.tp} GPUs = {mem*agent_cfg.tp:.1f} GiB", flush=True)
+
+    run_agent_bench(
+        out_dir=out_dir,
+        dataset_path=Path(dataset_path) if dataset_path else None,
+        skip_matrix=skip_matrix,
+        skip_scenarios=skip_scenarios,
+        resume=(resume is not None),
+    )
+
+    print(f"\n[agent] Done → {out_dir}", flush=True)
+    _disable_resume_service()
+
+
 # ---------------------------------------------------------------------------
 
 def _run_ablation(

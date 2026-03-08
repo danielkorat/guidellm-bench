@@ -21,6 +21,7 @@ Benchmarking tool (`bench.py` entry point + `guidellm_bench/` package) that runs
 │   ├── server.py                 # vLLM server lifecycle: start, health-check, stop
 │   ├── dataset.py                # AIME 2024 + generic HF dataset download; long-context slicing
 │   ├── benchmark.py              # run_guidellm() (+ lc_mode) and copy_results()
+│   ├── agent_bench.py            # deep-research agent TTFT matrix + scenario simulation
 │   └── dashboard.py              # build_dashboard_html() and write_serve_script()
 ├── verify_pc.py                  # Verify PC artifact: confirms LC dataset cross-run KV-cache seeding
 ├── results/                      # Created at runtime (full runs) — gitignored
@@ -41,6 +42,7 @@ Benchmarking tool (`bench.py` entry point + `guidellm_bench/` package) that runs
 │       ├── bench.log
 │       ├── bench.pid
 │       └── logs/
+├── agent_results/                # Created at runtime (--agent runs) — gitignored
 ├── throughput_results/           # Created at runtime (--throughput runs) — gitignored
 │   └── YYYYMMDD_HHMM/
 │       ├── throughput_dashboard.html
@@ -298,6 +300,7 @@ out_dir = Path(results_dir) / ts
 | `server.py` | vLLM server lifecycle: start, health-check, stop |
 | `dataset.py` | AIME 2024 dataset download and caching |
 | `benchmark.py` | `run_guidellm()` and `copy_results()` |
+| `agent_bench.py` | TTFT matrix measurement, agent scenario simulation, corpus/tokenizer helpers |
 | `dashboard.py` | `build_dashboard_html()` and `write_serve_script()` |
 
 Do **not** add new logic directly to `bench.py`.
@@ -487,6 +490,23 @@ nohup ./bench.py --throughput > /dev/null 2>&1 &
 # Resume an interrupted throughput run
 ./bench.py --throughput --resume throughput_results/YYYYMMDD_HHMM
 
+# Agent benchmark: TTFT matrix (24 cells) + 4 scenario simulations
+# Server: gpt-oss-20b tp8+async+PC, max_model_len=200k, PC=True
+# Results → ./agent_results/YYYYMMDD_HHMM/agent_bench_results.json
+nohup ./bench.py --agent > /dev/null 2>&1 &
+
+# Agent: matrix only (skip multi-turn scenario simulations)
+./bench.py --agent --skip-scenarios
+
+# Agent: scenarios only (skip the 24-cell TTFT matrix)
+./bench.py --agent --skip-matrix
+
+# Agent: use custom corpus
+./bench.py --agent --data ccdv/arxiv-summarization
+
+# Resume interrupted agent run
+./bench.py --agent --resume agent_results/YYYYMMDD_HHMM
+
 # Combined: gpt-oss-20b EP comparison with long-context slices on deepresearchgym dataset
 nohup ./bench.py \
   --models openai/gpt-oss-20b \
@@ -599,6 +619,47 @@ Cached to `out_dir/datasets/{safe_name}_{split}_v1.jsonl`. Output: `{prompt, out
 - **Mutually exclusive** with `--ep` — validated at startup with `sys.exit()`.
 - Both `_EP_VARIANTS` list and the dedup loop live in `bench.py::main()` (not `config.py`).
 
+### 34. Agent Benchmark (`--agent`)
+**RULE**: `--agent` measures two things for `gpt-oss-20b tp8+async+PC`:
+
+#### Part 1 — TTFT matrix (24 cells)
+- 6 cached-context sizes × 4 new-token sizes
+- `MATRIX_N_CACHED = [0, 8k, 32k, 64k, 96k, 112k]` tokens (accumulated KV cache)
+- `MATRIX_N_NEW = [1k, 4k, 8k, 16k]` tokens (new tokens per iteration)
+- max cell: 114,688 + 16,384 = **131,072 = AGENT_MAX_MODEL_LEN** (exact fit)
+- 15 samples/cell + 3 warm-up discards; re-runs cell if CV > 0.35
+- Cache warming protocol: `prefix_prompt → max_tokens=1` before each measured request
+- Token-exact prompt construction: `Corpus` class calls `/tokenize` once and `/detokenize` per slice
+- Matrix corpus: FRAMES Wikipedia articles (`_prepare_frames_corpus()`)
+
+#### Part 2 — Real ReAct agent scenarios (FRAMES benchmark)
+**RULE**: Scenarios are NOT emulation. They use a real ReAct loop running against the LLM:
+- Dataset: `google/frames-benchmark` — 824 multi-hop research questions, each bundled with 2-15 gold Wikipedia articles (the actual search results a real agent would retrieve)
+- 4 questions selected at evenly-spaced percentiles of total article content length (short → deep)
+- Per scenario / per iteration:
+  1. Build prompt = `AGENT_SYSTEM_PROMPT + question + conversation_so_far + "Next action:"`
+  2. Warm KV cache with prefix (non-streaming, max_tokens=1)
+  3. Single streaming call → TTFT measured + full generated text captured in ONE pass
+  4. Parse JSON action from LLM output: `{"action":"search","query":"..."}` or `{"action":"answer","text":"..."}`
+  5. If search: retrieve best-matching Wikipedia article via keyword recall over gold docs; append to conversation
+  6. If answer: done. Max 20 iterations.
+- `_keyword_recall(query, doc)` — fraction of query words in doc (stdlib only, no deps)
+- `_find_best_doc(query, docs, used)` — returns highest-scoring unused doc
+- `_parse_json_action(raw)` — extracts first `{...}` JSON object; falls back to implicit search
+
+#### Implementation
+- `guidellm_bench/agent_bench.py` — all logic
+- `_run_agent()` in `bench.py` — server lifecycle + dispatch
+- Server: `tp=8, async_scheduling=True, prefix_caching=True`
+- `AGENT_MAX_MODEL_LEN = 131_072`, `AGENT_MAX_BATCHED = 131_072`
+- Dataset: auto-builds FRAMES corpus via `_prepare_frames_corpus(out_dir)` (downloads once, cached per run dir)
+- Results → `./agent_results/YYYYMMDD_HHMM/agent_bench_results.json`
+- Supports `--resume`, `--skip-matrix`, `--skip-scenarios`
+
+#### TTFT model (for cache-hit ratio / speedup reporting)
+`cold_est = 38.3 + 62.0·N_total_k + 0.731·N_total_k²` ms  (fitted to no-PC data 1k–48k)
+Speedup vs cold = `cold_est(N_new, N_cached) / measured_TTFT_with_PC`
+
 ### 33. Throughput Study (`--throughput`)
 **RULE**: `--throughput` is a concurrency × input_length sweep for `gpt-oss-20b` on Intel XPU.
 
@@ -637,7 +698,7 @@ Cached to `out_dir/datasets/{safe_name}_{split}_v1.jsonl`. Output: `{prompt, out
 #### `max_num_batched_tokens` for large-context studies
 **RULE**: Set `max_num_batched_tokens ≥ max_input_len` when running large-context (16k+) benchmarks. The default of `8192` causes vLLM to chunk a 96k-token prefill over ~12 forward passes, serialising the KV-cache write and inflating TTFT by 10-50×. `THROUGHPUT_MAX_NUM_BATCHED_TOKENS = 131072` matches the full context window.
 
-**Last Updated**: March 8, 2026 — Fixed zero-filled `b['metrics']` aggregates in the installed guidellm fork (Lesson 45): removed `or 0.0` from TTFT/ITL/latency lambdas in `GenerativeMetrics.compile()` so `None` propagates to `from_values_function`'s built-in None-skip. Fix applied to installed copy in container; must be committed to `fix/thinking-model-ttft` branch to survive reinstall. Previous: March 9, 2026 — Fixed empty throughput dashboard plots (Lesson 44: `chart_js_lines` missing `<script>` wrapper in `build_throughput_dashboard_html`; added dashboard HTML verification rule). Added `--no-ep` CLI flag to skip Server B (EP) in throughput runs. Previous: Added `--throughput` mode: `_run_throughput()` in `bench.py`, `build_throughput_dashboard_html()` in `dashboard.py`, `prepare_throughput_dataset()` in `dataset.py`, `get_throughput_configs()` + THROUGHPUT_* constants in `config.py`; 2 server configs (tp8+async, tp8+async+ep); exactly 1 restart; 4 concurrencies × 4 input lengths × 1 output length; 2×c samples; max_num_batched_tokens=131072; throughput_dashboard.html with per-concurrency tabs + Concurrency Effects tab; results → `./throughput_results/`; Rule 33 added; repo structure + Common Commands updated.
+**Last Updated**: March 8, 2026 — Upgraded `--agent` to real deep-research agent using `google/frames-benchmark`: real ReAct loop (LLM generates JSON search/answer actions; keyword retrieval over gold Wikipedia articles), FRAMES corpus for matrix, max_model_len=131_072 (was 200k), MATRIX_N_CACHED updated to [0,8k,32k,64k,96k,112k] (max cell=131072 exact fit). Old emulation (`AGENT_SCENARIOS` fixed-token loop) removed. Rule 34 fully rewritten. Previous: March 8, 2026 — Added `--agent` deep-research agent benchmark in the installed guidellm fork (Lesson 45): removed `or 0.0` from TTFT/ITL/latency lambdas in `GenerativeMetrics.compile()` so `None` propagates to `from_values_function`'s built-in None-skip. Fix applied to installed copy in container; must be committed to `fix/thinking-model-ttft` branch to survive reinstall. Previous: March 9, 2026 — Fixed empty throughput dashboard plots (Lesson 44: `chart_js_lines` missing `<script>` wrapper in `build_throughput_dashboard_html`; added dashboard HTML verification rule). Added `--no-ep` CLI flag to skip Server B (EP) in throughput runs. Previous: Added `--throughput` mode: `_run_throughput()` in `bench.py`, `build_throughput_dashboard_html()` in `dashboard.py`, `prepare_throughput_dataset()` in `dataset.py`, `get_throughput_configs()` + THROUGHPUT_* constants in `config.py`; 2 server configs (tp8+async, tp8+async+ep); exactly 1 restart; 4 concurrencies × 4 input lengths × 1 output length; 2×c samples; max_num_batched_tokens=131072; throughput_dashboard.html with per-concurrency tabs + Concurrency Effects tab; results → `./throughput_results/`; Rule 33 added; repo structure + Common Commands updated.
 **Primary Maintainer**: Daniel Korat, Intel
 
 ---
