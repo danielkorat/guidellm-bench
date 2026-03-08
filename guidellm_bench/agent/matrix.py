@@ -19,7 +19,7 @@ from .constants import (
     MATRIX_N_CACHED, MATRIX_N_NEW,
     N_WARMUPS, N_SAMPLES, CV_RERUN_THRESHOLD,
     OUTPUT_TOKENS_DEFAULT, INTER_REQUEST_SLEEP_S,
-    CONCURRENCY, CellResult,
+    CONCURRENCY, CellResult, AGENT_MAX_MODEL_LEN,
 )
 from .debug import _DBG, _DBG_INFO, _DBG_WARN
 from .helpers import make_session, _warm_cache, _verify_token_count, _measure_ttft
@@ -71,6 +71,12 @@ def measure_cell(
     cold_est = _cold_ttft_estimate(n_new_target, n_cached_target)
     c_label = f"N_cached={n_cached_target//1024}k N_new={n_new_target//1024}k"
     prefix = f"  Cell {c_label}"
+
+    # Cap output tokens so prompt + output never exceeds max_model_len.
+    # The 112k+16k cell fills the context exactly; even 1 extra output token
+    # causes vLLM to return 400 Bad Request.
+    max_output_tokens = min(max_output_tokens, AGENT_MAX_MODEL_LEN - n_cached_target - n_new_target - 1)
+    max_output_tokens = max(max_output_tokens, 1)  # always allow at least 1 output token
 
     _DBG_INFO(
         f"[measure_cell] START {c_label}  cold_est={cold_est:.0f}ms  "
@@ -246,6 +252,14 @@ def run_ttft_matrix(
             if (n_cached, n_new) in done_cells:
                 print(
                     f"  [{cell_idx}/{total_cells}] Skipping {c_label} (already done)",
+                    flush=True,
+                )
+                continue
+
+            if n_cached + n_new >= AGENT_MAX_MODEL_LEN:
+                print(
+                    f"  [{cell_idx}/{total_cells}] Skipping {c_label} "
+                    f"(n_cached+n_new={((n_cached+n_new)//1024)}k ≥ max_model_len={AGENT_MAX_MODEL_LEN//1024}k — no headroom for output)",
                     flush=True,
                 )
                 continue

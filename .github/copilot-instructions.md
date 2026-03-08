@@ -31,7 +31,7 @@ Benchmarking tool (`bench.py` entry point + `guidellm_bench/` package) that runs
 │   │   ├── scenarios.py          #   ReAct loop, run_research_session, run_agent_scenarios_frames
 │   │   └── run.py                #   run_agent_bench, get_agent_server_config
 │   ├── agent_bench.py            # backward-compat shim → re-exports from guidellm_bench.agent
-│   └── dashboard.py              # build_dashboard_html() and write_serve_script()
+│   └── dashboard.py              # build_dashboard_html(), build_ablation_dashboard_html(), build_throughput_dashboard_html(), build_agent_dashboard_html(), write_serve_script()
 ├── verify_pc.py                  # Verify PC artifact: confirms LC dataset cross-run KV-cache seeding
 ├── results/                      # Created at runtime (full runs) — gitignored
 │   └── YYYYMMDD_HHMM/
@@ -311,7 +311,7 @@ out_dir = Path(results_dir) / ts
 | `benchmark.py` | `run_guidellm()` and `copy_results()` |
 | `agent/` | deep-research agent subpackage (constants, debug, helpers, corpus, matrix, scenarios, run) |
 | `agent_bench.py` | backward-compat shim — re-exports everything from `guidellm_bench.agent` |
-| `dashboard.py` | `build_dashboard_html()` and `write_serve_script()` |
+| `dashboard.py` | `build_dashboard_html()`, `build_ablation_dashboard_html()`, `build_throughput_dashboard_html()`, `build_agent_dashboard_html()`, `write_serve_script()` |
 
 Do **not** add new logic directly to `bench.py`.
 
@@ -536,6 +536,13 @@ from pathlib import Path
 out_dir = Path('results/YYYYMMDD_HHMM')
 succeeded = ['model_tp4_quant-none_eager-true']
 build_dashboard_html(out_dir, succeeded)
+"
+
+# Rebuild agent dashboard from completed matrix (inside container)
+docker exec lsv-container python3 -c "
+from guidellm_bench.dashboard import build_agent_dashboard_html
+from pathlib import Path
+build_agent_dashboard_html(Path('/root/guidellm-bench/agent_results/YYYYMMDD_HHMM'))
 "
 
 # Serve dashboard

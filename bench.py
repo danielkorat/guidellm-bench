@@ -936,6 +936,17 @@ def _run_agent(
         resume=(resume is not None),
     )
 
+    # Build dashboard from completed results
+    try:
+        from guidellm_bench.dashboard import build_agent_dashboard_html
+        _vllm_cmd = None
+        _vllm_cmd_path = out_dir / "logs" / f"{agent_cfg.name}_vllm_cmd.txt"
+        if _vllm_cmd_path.exists():
+            _vllm_cmd = _vllm_cmd_path.read_text().strip()
+        build_agent_dashboard_html(out_dir, vllm_cmd=_vllm_cmd)
+    except Exception as _e:
+        print(f"[agent] Dashboard build failed (non-fatal): {_e}", flush=True)
+
     print(f"\n[agent] Done → {out_dir}", flush=True)
     _disable_resume_service()
 

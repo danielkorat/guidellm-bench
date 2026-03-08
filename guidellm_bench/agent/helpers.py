@@ -84,9 +84,29 @@ def _detokenize(session: requests.Session, tokens: list[int]) -> str:
 
 
 def _verify_token_count(session: requests.Session, text: str) -> int:
-    """Return actual token count for *text* (non-streaming completions, max_tokens=1)."""
+    """Return actual token count for *text*.
+
+    Uses /tokenize (no generation, no max_model_len constraint) so cells that
+    fill the entire context window (e.g. 112k + 16k = 131072 = max_model_len)
+    don't get a 400 error from requsting max_tokens=1 on top of a full prompt.
+    Falls back to /v1/completions (max_tokens=1) if /tokenize is unavailable.
+    """
     t0 = time.perf_counter()
     _DBG(f"verify_token_count: prompt={len(text):,} chars")
+    try:
+        resp = session.post(
+            f"{_BASE_URL}/tokenize",
+            json={"model": AGENT_MODEL, "prompt": text},
+            timeout=300,
+        )
+        resp.raise_for_status()
+        n_tok = len(resp.json()["tokens"])
+        _DBG(f"verify_token_count (/tokenize): {len(text):,} chars → {n_tok} tokens in {(time.perf_counter()-t0)*1000:.0f}ms")
+        return n_tok
+    except Exception:
+        pass  # fall back to completions
+
+    # Fallback: /v1/completions with max_tokens=1 (only works if prompt+1 ≤ max_model_len)
     try:
         resp = session.post(
             f"{_BASE_URL}/v1/completions",
@@ -101,7 +121,7 @@ def _verify_token_count(session: requests.Session, text: str) -> int:
         )
         resp.raise_for_status()
         n_tok = resp.json()["usage"]["prompt_tokens"]
-        _DBG(f"verify_token_count: {len(text):,} chars → {n_tok} tokens in {(time.perf_counter()-t0)*1000:.0f}ms")
+        _DBG(f"verify_token_count (/completions): {len(text):,} chars → {n_tok} tokens in {(time.perf_counter()-t0)*1000:.0f}ms")
         return n_tok
     except Exception as exc:
         _DBG_ERR(f"verify_token_count FAILED after {(time.perf_counter()-t0)*1000:.0f}ms: {exc}")
@@ -257,6 +277,7 @@ def _fetch_wikipedia_text(url: str, timeout: int = 15) -> Optional[str]:
         resp = requests.get(
             "https://en.wikipedia.org/w/api.php",
             params=params,
+            headers={"User-Agent": "guidellm-bench/1.0 (academic research; https://github.com/danielkorat/guidellm-bench)"},
             timeout=timeout,
         )
         resp.raise_for_status()
