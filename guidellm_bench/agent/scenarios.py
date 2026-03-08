@@ -22,7 +22,7 @@ from .constants import (
     AGENT_MAX_MODEL_LEN, CONCURRENCY, ScenarioResult,
 )
 from .debug import _DBG, _DBG_INFO, _DBG_WARN
-from .helpers import make_session, _warm_cache, _measure_ttft
+from .helpers import make_session, _warm_cache, _measure_ttft, _fetch_wikipedia_text, _parse_frames_urls
 from .matrix import _cold_ttft_estimate
 
 assert CONCURRENCY == 1, "scenarios assume concurrency=1"
@@ -68,22 +68,21 @@ def _load_frames_questions(n_select: int = N_AGENT_SCENARIOS) -> list[dict]:
             or row.get("question")
             or row.get("task")
             or ""
-        )
-        raw_wiki = (
-            row.get("wiki_doc")
-            or row.get("wiki_docs")
-            or row.get("documents")
-            or ""
-        )
-        if isinstance(raw_wiki, str):
-            parts = [p.strip() for p in raw_wiki.split("\n\n\n") if p.strip()]
-            wiki_docs = parts if parts else ([raw_wiki] if raw_wiki.strip() else [])
-        elif isinstance(raw_wiki, list):
-            wiki_docs = [str(d).strip() for d in raw_wiki if d]
-        else:
-            wiki_docs = []
+        ).strip()
 
-        if not prompt or not wiki_docs:
+        # FRAMES has no wiki_doc text column — only URLs (wikipedia_link_1…N).
+        # Fetch article text on demand; skip rows where nothing resolves.
+        urls = _parse_frames_urls(row)
+        if not prompt or not urls:
+            continue
+
+        wiki_docs: list[str] = []
+        for url in urls:
+            text = _fetch_wikipedia_text(url)
+            if text:
+                wiki_docs.append(text)
+
+        if not wiki_docs:
             continue
 
         total_chars = sum(len(d) for d in wiki_docs)
@@ -97,6 +96,8 @@ def _load_frames_questions(n_select: int = N_AGENT_SCENARIOS) -> list[dict]:
                 "reasoning_types": str(row.get("reasoning_types") or ""),
             }
         )
+        if len(questions) >= n_select * 10:  # gather 10× candidates for percentile selection
+            break
 
     if not questions:
         print("  WARNING: No valid FRAMES questions found.", flush=True)

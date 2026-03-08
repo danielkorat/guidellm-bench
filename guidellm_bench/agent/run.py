@@ -40,9 +40,10 @@ def get_agent_server_config(tp: Optional[int] = None) -> Config:
     vLLM warm-up dummy run below the Intel XPU Triton PTSS 256KB limit.  Actual long
     prompts are served via chunked prefill (16 passes × 8k batched tokens).
 
-    NOTE: async_scheduling omitted — at max_model_len ≥ 32k the XPU Triton backend
-    fails to compile the larger async fused kernel.  Prefix caching alone is
-    sufficient for demonstrating KV-cache speedup.
+    NOTE: async_scheduling omitted — at CONCURRENCY=1 it adds no throughput benefit
+    and can trigger XPU Triton compilation failures at large context sizes.
+    If ZE_RESULT_ERROR_MODULE_BUILD_FAILURE is seen on startup, clear the stale
+    Inductor cache: docker exec lsv-container rm -rf /tmp/torchinductor_root
 
     Args:
         tp: Tensor-parallelism override.  Default = AGENT_TP (8).

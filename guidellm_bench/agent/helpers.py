@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import time
+import urllib.parse
 from typing import Optional
 
 import requests
@@ -23,6 +24,8 @@ __all__ = [
     "_verify_token_count",
     "_warm_cache",
     "_measure_ttft",
+    "_fetch_wikipedia_text",
+    "_parse_frames_urls",
 ]
 
 assert CONCURRENCY == 1, "agent benchmark must run with concurrency=1"
@@ -228,3 +231,71 @@ def _measure_ttft(
     if return_text:
         return ttft_ms, prompt_tokens, full_text, total_ms
     return ttft_ms, prompt_tokens, total_ms
+
+
+# ---------------------------------------------------------------------------
+# Wikipedia helpers (used by corpus.py and scenarios.py)
+# ---------------------------------------------------------------------------
+
+def _fetch_wikipedia_text(url: str, timeout: int = 15) -> Optional[str]:
+    """Fetch full Wikipedia article text from a wikipedia.org URL.
+
+    Uses the Wikipedia Action API with explaintext=1 so the result is plain
+    prose (no wiki markup).  trust_env is left at the default (True) so the
+    Intel proxy env-vars (http_proxy / https_proxy) are honoured.
+    """
+    try:
+        title = urllib.parse.unquote(url.rstrip("/").split("/wiki/")[-1])
+        params = {
+            "action": "query",
+            "titles": title,
+            "prop": "extracts",
+            "format": "json",
+            "explaintext": "1",
+            "redirects": "1",
+        }
+        resp = requests.get(
+            "https://en.wikipedia.org/w/api.php",
+            params=params,
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        pages = resp.json().get("query", {}).get("pages", {})
+        for page in pages.values():
+            extract = page.get("extract", "")
+            if extract and len(extract) > 200:
+                return extract
+    except Exception as exc:
+        _DBG_WARN(f"_fetch_wikipedia_text({url!r}): {exc}")
+    return None
+
+
+def _parse_frames_urls(row: dict) -> list[str]:
+    """Extract Wikipedia URLs from a FRAMES benchmark dataset row.
+
+    FRAMES stores URLs in ``wikipedia_link_1`` … ``wikipedia_link_10`` and
+    ``wikipedia_link_11+`` columns (NoneType when absent).  The ``wiki_links``
+    column contains a string repr of the same list as a backup.
+    """
+    urls: list[str] = []
+    for i in range(1, 11):
+        val = row.get(f"wikipedia_link_{i}")
+        if val and isinstance(val, str) and "/wiki/" in val:
+            urls.append(val.strip())
+    extra = row.get("wikipedia_link_11+")
+    if extra and isinstance(extra, str) and "/wiki/" in extra:
+        urls.append(extra.strip())
+    if not urls:
+        import ast
+        wl = row.get("wiki_links", "")
+        if isinstance(wl, str):
+            try:
+                parsed = ast.literal_eval(wl)
+                if isinstance(parsed, list):
+                    urls = [
+                        u.strip() for u in parsed
+                        if isinstance(u, str) and "/wiki/" in u
+                    ]
+            except Exception:
+                pass
+    return urls

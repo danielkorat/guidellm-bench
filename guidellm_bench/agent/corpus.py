@@ -14,7 +14,7 @@ import requests
 
 from .constants import AGENT_DATASET, MATRIX_N_CACHED, MATRIX_N_NEW
 from .debug import _DBG_INFO, _DBG_WARN, _DBG_ERR
-from .helpers import _tokenize, _detokenize
+from .helpers import _tokenize, _detokenize, _fetch_wikipedia_text, _parse_frames_urls
 
 __all__ = ["Corpus", "_prepare_frames_corpus", "_find_arxiv_fallback"]
 
@@ -78,7 +78,7 @@ def _prepare_frames_corpus(out_dir: Path) -> Optional[Path]:
     Returns path to the JSONL, or None on failure (caller falls back to arxiv).
     """
     corpus_path = out_dir / "datasets" / "frames_corpus_v1.jsonl"
-    if corpus_path.exists():
+    if corpus_path.exists() and corpus_path.stat().st_size > 100:
         print(f"  FRAMES corpus: using cached {corpus_path}", flush=True)
         return corpus_path
     corpus_path.parent.mkdir(parents=True, exist_ok=True)
@@ -86,30 +86,43 @@ def _prepare_frames_corpus(out_dir: Path) -> Optional[Path]:
     try:
         from datasets import load_dataset  # type: ignore
         ds = load_dataset(AGENT_DATASET, split="test")
+
+        # FRAMES only provides Wikipedia URLs, not article text.
+        # Collect unique URLs from all rows, then fetch their content.
+        seen_urls: set[str] = set()
+        url_list: list[str] = []
+        for row in ds:
+            for url in _parse_frames_urls(row):
+                if url not in seen_urls:
+                    seen_urls.add(url)
+                    url_list.append(url)
+
+        print(
+            f"  FRAMES corpus: fetching Wikipedia text for "
+            f"{min(len(url_list), 60)} / {len(url_list)} unique URLs ...",
+            flush=True,
+        )
+
         n_docs = 0
         with open(corpus_path, "w") as f:
-            for row in ds:
-                raw_wiki = (
-                    row.get("wiki_doc")
-                    or row.get("wiki_docs")
-                    or row.get("documents")
-                    or ""
-                )
-                if isinstance(raw_wiki, str) and raw_wiki.strip():
-                    json.dump({"prompt": raw_wiki.strip()}, f)
+            for url in url_list[:60]:  # 60 articles is plenty for 131k tokens
+                text = _fetch_wikipedia_text(url)
+                if text:
+                    import json as _json
+                    _json.dump({"prompt": text.strip()}, f)
                     f.write("\n")
                     n_docs += 1
-                elif isinstance(raw_wiki, list):
-                    for d in raw_wiki:
-                        if d and str(d).strip():
-                            json.dump({"prompt": str(d).strip()}, f)
-                            f.write("\n")
-                            n_docs += 1
-        print(f"  FRAMES corpus: {n_docs} documents → {corpus_path}", flush=True)
+
+        print(f"  FRAMES corpus: {n_docs} Wikipedia articles → {corpus_path}", flush=True)
+        if n_docs == 0:
+            corpus_path.unlink(missing_ok=True)
+            return None
         return corpus_path
     except Exception as exc:
         _DBG_WARN(f"FRAMES corpus build failed ({exc})")
         print(f"  WARNING: FRAMES corpus build failed ({exc})", flush=True)
+        if corpus_path.exists() and corpus_path.stat().st_size == 0:
+            corpus_path.unlink(missing_ok=True)
         return None
 
 
