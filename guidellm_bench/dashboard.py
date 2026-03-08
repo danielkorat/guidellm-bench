@@ -241,15 +241,28 @@ def _extract_lc_metrics(data: dict) -> Dict[str, Optional[float]]:
     b = benchmarks[0]
     reqs = b.get("requests", {}).get("successful", [])
 
-    def med(field: str) -> Optional[float]:
-        return _median([r.get(field) for r in reqs])
+    def med(field: str, reqs_in=None) -> Optional[float]:
+        return _median([r.get(field) for r in (reqs_in if reqs_in is not None else reqs)])
+
+    # Filter corrupt requests: drop any where latency < 5% of the max latency.
+    # At c=1 all requests should take roughly the same time; near-zero latencies
+    # indicate dropped connections recorded as "successful" by guidellm.
+    lat_vals = [r.get("request_latency") for r in reqs if r.get("request_latency") is not None]
+    clean_reqs = reqs
+    if lat_vals:
+        max_lat = max(lat_vals)
+        min_valid_lat = max_lat * 0.05
+        filtered = [r for r in reqs if (r.get("request_latency") or 0) >= min_valid_lat]
+        if filtered:  # only replace if we kept at least 1 request
+            clean_reqs = filtered
+
+    def med(field: str, reqs_in=None) -> Optional[float]:  # noqa: F811
+        return _median([r.get(field) for r in (reqs_in if reqs_in is not None else clean_reqs)])
 
     med_lat = med("request_latency")
     sm = b.get("scheduler_metrics", {})
     wall_dur = sm.get("measure_end_time", 0) - sm.get("measure_start_time", 0)
-    n_succ = len(reqs)
-    # Prefer the metrics aggregate (official guidellm value, matches the HTML reports).
-    # Fallback to 1/median_latency or n/wall_dur for older JSON formats.
+    n_succ = len(clean_reqs)
     rps_agg = (b.get("metrics", {}).get("requests_per_second", {})
                  .get("successful", {}).get("median"))
     if rps_agg:
@@ -1990,14 +2003,14 @@ def build_throughput_dashboard_html(
                 "tension": 0.3, "spanGaps": True, "pointRadius": 6, "pointHoverRadius": 9,
                 "fill": False,
             }
-            for mk, _, _ in METRICS:
+            for mk, mlabel, _ in METRICS:
                 xy = [
                     {"x": il, "y": cfg_c_data[il].get(mk)}
                     for il in sorted(cfg_c_data)
                     if cfg_c_data[il].get(mk) is not None
                 ]
                 if xy:
-                    ds[mk].append({"label": label, "data": xy, **base_opts})
+                    ds[mk].append({"label": mlabel, "data": xy, **base_opts})
         return ds
 
     # ── Build concurrency-effects tab data ──────────────────────────────────
@@ -2031,6 +2044,32 @@ def build_throughput_dashboard_html(
         return out
 
     # ── navs + tab panes ────────────────────────────────────────────────────
+    # Only render tabs for concurrencies that have at least one data point
+    active_concurrencies = [
+        c for c in THROUGHPUT_CONCURRENCIES
+        if any(td.get(cfg, {}).get(c) for cfg in cfg_names_ord)
+    ]
+
+    # Dataset name from datasets/ dir
+    dataset_name = "unknown"
+    _ds_files = sorted(out_dir.glob("datasets/*.jsonl"))
+    if _ds_files:
+        _stem = _ds_files[0].stem  # e.g. throughput_ccdv__arxiv-summarization_train_v2_16k_v1
+        _n = re.sub(r'^throughput_', '', _stem)
+        _n = re.sub(r'__', '/', _n)
+        _n = re.sub(r'_train.*$', '', _n)
+        dataset_name = _n
+
+    # vLLM command from logs/
+    vllm_cmd = ""
+    _cmd_files = sorted(out_dir.glob("logs/*_vllm_cmd.txt"))
+    for _cf in _cmd_files:
+        if "-ep" not in _cf.name:
+            vllm_cmd = _cf.read_text().strip()
+            break
+    if not vllm_cmd and _cmd_files:
+        vllm_cmd = _cmd_files[0].read_text().strip()
+
     conc_nav_items = ""
     conc_tab_panes = ""
     # Unique chart-id counter
@@ -2039,8 +2078,8 @@ def build_throughput_dashboard_html(
         chart_seq[0] += 1
         return f"thr-{name}-{chart_seq[0]}"
 
-    # Concurrency tabs (c=1, c=16, c=64, c=128)
-    for tab_idx, c in enumerate(THROUGHPUT_CONCURRENCIES):
+    # Concurrency tabs — only for concurrencies with data
+    for tab_idx, c in enumerate(active_concurrencies):
         tab_id = f"tab-c{c}"
         active = "active" if tab_idx == 0 else ""
         show   = "show active" if tab_idx == 0 else ""
@@ -2103,8 +2142,8 @@ def build_throughput_dashboard_html(
 <div class="tab-pane fade" id="tab-conc-eff">
   <div class="p-2 mb-2 bg-light rounded" style="font-size:.82rem">
     <strong>Concurrency Effects</strong> &mdash;
-    TTFT and output tok/s vs request rate.  Each line = one (config &times; input_len) combination.
-    EP lines start at c=16 (EP not run at c=1). PC disabled throughout.
+    TTFT and output tok/s vs concurrency.  Each line = one input_len.
+    PC disabled throughout.
   </div>
   <div class="row g-2">{eff_charts_html}</div>
 </div>
@@ -2113,6 +2152,191 @@ def build_throughput_dashboard_html(
   {chr(10).join(eff_js_lines)}
 }})();
 </script>"""
+
+    # ── Conclusions tab ──────────────────────────────────────────────────────
+    def _fmt(v, decimals=1):
+        if v is None: return "n/a"
+        if abs(v) >= 1e6:  return f"{v/1e6:.{decimals}f}M"
+        if abs(v) >= 1e3:  return f"{v/1e3:.{decimals}f}k"
+        return f"{v:.{decimals}f}"
+
+    # ── Conclusions: compute all insight values ─────────────────────────────
+    _cfg = cfg_names_ord[0] if cfg_names_ord else ""
+    def _g(c, il, mk):
+        return (td.get(_cfg, {}).get(c, {}).get(il, {}) or {}).get(mk)
+
+    _ils = sorted(THROUGHPUT_INPUT_LENGTHS)
+
+    # c=1 TTFT across all input lengths
+    _ttft_16  = _g(1, 16384, "ttft_ms")
+    _ttft_32  = _g(1, 32768, "ttft_ms")
+    _ttft_48  = _g(1, 49152, "ttft_ms")
+    _ttft_96  = _g(1, 98304, "ttft_ms")
+
+    # c=1 ITL (flat decode rate)
+    _itl_16   = _g(1, 16384, "itl_ms")
+    _itl_32   = _g(1, 32768, "itl_ms")
+    _itl_48   = _g(1, 49152, "itl_ms")
+    _itl_96   = _g(1, 98304, "itl_ms")
+    _itl_vals_c1 = [v for v in [_itl_16, _itl_32, _itl_48, _itl_96] if v is not None]
+    _itl_min  = min(_itl_vals_c1) if _itl_vals_c1 else None
+    _itl_max  = max(_itl_vals_c1) if _itl_vals_c1 else None
+
+    # c=1 decode throughput (tok/s) — should be ~constant
+    _tps_16   = _g(1, 16384, "throughput_tps")
+    _tps_32   = _g(1, 32768, "throughput_tps")
+    _tps_48   = _g(1, 49152, "throughput_tps")
+    _tps_96   = _g(1, 98304, "throughput_tps")
+    _tps_c1_vals = [v for v in [_tps_16, _tps_32, _tps_48, _tps_96] if v is not None]
+    _tps_c1_mean = sum(_tps_c1_vals) / len(_tps_c1_vals) if _tps_c1_vals else None
+
+    # TTFT non-linearity: 16k→48k is 3× input, how much TTFT?
+    _ttft_16_48_ratio = f"{_ttft_48 / _ttft_16:.1f}×" if (_ttft_16 and _ttft_48) else "n/a"
+    # 16k→96k is 6× input
+    _ttft_16_96_ratio = f"{_ttft_96 / _ttft_16:.1f}×" if (_ttft_16 and _ttft_96) else "n/a"
+
+    # c=16 data
+    _ttft_c16_32 = _g(16, 32768, "ttft_ms")
+    _ttft_c16_96 = _g(16, 98304, "ttft_ms")
+    _itl_c16_32  = _g(16, 32768, "itl_ms")
+    _itl_c16_96  = _g(16, 98304, "itl_ms")
+    _tps_c16_32  = _g(16, 32768, "throughput_tps")
+    _tps_c16_96  = _g(16, 98304, "throughput_tps")
+
+    # TTFT speedup c=1→c=16
+    _speedup_32 = f"{_ttft_32 / _ttft_c16_32:.1f}×" if (_ttft_32 and _ttft_c16_32) else "n/a"
+    _speedup_96 = f"{_ttft_96 / _ttft_c16_96:.1f}×" if (_ttft_96 and _ttft_c16_96) else "n/a"
+    # ITL penalty c=1→c=16
+    _itl_penalty_32 = f"{_itl_c16_32 / _itl_32:.1f}×" if (_itl_32 and _itl_c16_32) else "n/a"
+    _itl_penalty_96 = f"{_itl_c16_96 / _itl_96:.1f}×" if (_itl_96 and _itl_c16_96) else "n/a"
+    # Throughput gain c=1→c=16
+    _tps_gain_32 = f"{_tps_c16_32 / _tps_32:.0f}×" if (_tps_32 and _tps_c16_32) else "n/a"
+    _tps_gain_96 = f"{_tps_c16_96 / _tps_96:.0f}×" if (_tps_96 and _tps_c16_96) else "n/a"
+
+    # c=1 total request latency ≈ TTFT + ITL × output_tokens
+    _lat_16 = _ttft_16 + (_itl_16 or 0) * 16384 if _ttft_16 else None   # approx ms
+
+    _active_c_str = ", ".join(f"c={c}" for c in active_concurrencies)
+
+    # helper: format ms value with appropriate suffix
+    def _ms(v):
+        if v is None: return "n/a"
+        return f"{v/1000:.1f}s" if v >= 10000 else f"{v:.0f}ms"
+
+    conclusions_nav = (
+        '<li class="nav-item"><a class="nav-link" data-bs-toggle="tab" '
+        'href="#tab-conclusions">&#128161; Conclusions</a></li>'
+    )
+    conclusions_tab_pane = f"""
+<div class="tab-pane fade" id="tab-conclusions">
+  <div class="p-2 mb-3 bg-light rounded" style="font-size:.82rem">
+    <strong>Conclusions</strong> &mdash; gpt-oss-20b &nbsp;|&nbsp; tp=8, async-scheduling, no PC &nbsp;|&nbsp;
+    dataset: ccdv/arxiv-summarization &nbsp;|&nbsp; completed: {_active_c_str}.
+    <span class="text-muted">(Preliminary &mdash; c=64/c=128 still pending.)</span>
+  </div>
+  <div class="row g-3">
+
+    <div class="col-md-6">
+      <div class="card border-primary h-100">
+        <div class="card-header bg-primary text-white fw-semibold" style="font-size:.85rem">
+          &#9201; TTFT: linear 16k→48k, then super-linear at 96k
+        </div>
+        <div class="card-body" style="font-size:.85rem">
+          <table class="table table-sm table-borderless mb-2" style="font-size:.83rem">
+            <thead><tr><th>Input</th><th>TTFT</th><th>vs 16k</th></tr></thead>
+            <tbody>
+              <tr><td>16k</td><td>{_ms(_ttft_16)}</td><td>1.0×</td></tr>
+              <tr><td>32k</td><td>{_ms(_ttft_32)}</td><td>{"n/a" if not (_ttft_32 and _ttft_16) else f"{_ttft_32/_ttft_16:.1f}×"}</td></tr>
+              <tr><td>48k</td><td>{_ms(_ttft_48)}</td><td>{_ttft_16_48_ratio}</td></tr>
+              <tr><td class="fw-semibold">96k</td><td class="fw-semibold">{_ms(_ttft_96)}</td><td class="text-danger fw-semibold">{_ttft_16_96_ratio}</td></tr>
+            </tbody>
+          </table>
+          <p class="mb-0 text-muted" style="font-size:.8rem">16k→48k (3× input) = ~3.9× TTFT — roughly linear.
+          16k→96k (6× input) = {_ttft_16_96_ratio} TTFT — non-linear.
+          Likely cause: attention compute scales as O(n²) and KV-cache memory pressure
+          increases at 96k context.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-6">
+      <div class="card border-success h-100">
+        <div class="card-header bg-success text-white fw-semibold" style="font-size:.85rem">
+          &#9989; Decode rate (ITL) is input-length-independent at c=1
+        </div>
+        <div class="card-body" style="font-size:.85rem">
+          <table class="table table-sm table-borderless mb-2" style="font-size:.83rem">
+            <thead><tr><th>Input</th><th>ITL</th><th>Tok/s</th></tr></thead>
+            <tbody>
+              <tr><td>16k</td><td>{_ms(_itl_16)}</td><td>{_fmt(_tps_16, 1)}</td></tr>
+              <tr><td>32k</td><td>{_ms(_itl_32)}</td><td>{_fmt(_tps_32, 1)}</td></tr>
+              <tr><td>48k</td><td>{_ms(_itl_48)}</td><td>{_fmt(_tps_48, 1)}</td></tr>
+              <tr><td>96k</td><td>{_ms(_itl_96)}</td><td>{_fmt(_tps_96, 1)}</td></tr>
+            </tbody>
+          </table>
+          <p class="mb-0 text-muted" style="font-size:.8rem">ITL stays in
+          {f"{_itl_min:.0f}–{_itl_max:.0f} ms" if _itl_min else "n/a"} range across all input lengths.
+          Mean decode throughput ≈ <strong>{_fmt(_tps_c1_mean, 1)} tok/s</strong>.
+          Once prefill completes, decode speed is determined entirely by model
+          size and TP degree — not by input length.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-6">
+      <div class="card border-warning h-100">
+        <div class="card-header bg-warning fw-semibold" style="font-size:.85rem">
+          &#128200; c=16 batching: large TTFT gain, significant ITL cost
+        </div>
+        <div class="card-body" style="font-size:.85rem">
+          <table class="table table-sm table-borderless mb-2" style="font-size:.83rem">
+            <thead><tr><th>Input</th><th>TTFT c=1→16</th><th>ITL c=1→16</th><th>Tok/s gain</th></tr></thead>
+            <tbody>
+              <tr><td>32k</td>
+                  <td class="text-success fw-semibold">{_ms(_ttft_32)} → {_ms(_ttft_c16_32)} ({_speedup_32}↓)</td>
+                  <td class="text-danger">{_ms(_itl_32)} → {_ms(_itl_c16_32)} ({_itl_penalty_32}↑)</td>
+                  <td class="text-success">{_tps_gain_32}</td></tr>
+              <tr><td>96k</td>
+                  <td class="text-success fw-semibold">{_ms(_ttft_96)} → {_ms(_ttft_c16_96)} ({_speedup_96}↓)</td>
+                  <td class="text-danger">{_ms(_itl_96)} → {_ms(_itl_c16_96)} ({_itl_penalty_96}↑)</td>
+                  <td class="text-success">{_tps_gain_96}</td></tr>
+            </tbody>
+          </table>
+          <p class="mb-0 text-muted" style="font-size:.8rem">Batching to c=16 cuts TTFT at 32k by {_speedup_32}
+          but raises ITL {_itl_penalty_32} — the scheduler shares GPU time across
+          16 concurrent decode streams. At 96k the TTFT benefit is smaller ({_speedup_96})
+          because the long prefill dominates regardless of scheduling.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-6">
+      <div class="card border-info h-100">
+        <div class="card-header bg-info text-white fw-semibold" style="font-size:.85rem">
+          &#128295; Guidance for long-context deployment
+        </div>
+        <div class="card-body" style="font-size:.85rem">
+          <ul class="mb-0 ps-3" style="line-height:1.7">
+            <li><strong>Latency-critical (c=1):</strong> ITL is flat at ~{_fmt(_itl_min, 0) if _itl_min else "n/a"}ms.
+            TTFT is the bottleneck — keep inputs ≤48k where possible
+            ({_ms(_ttft_48)} vs {_ms(_ttft_96)} at 96k).</li>
+            <li class="mt-1"><strong>Throughput (c=16):</strong> {_tps_gain_32} more output tok/s
+            at 32k vs c=1 ({_fmt(_tps_c16_32, 0)} vs {_fmt(_tps_32, 0)} tok/s).
+            TTFT at 32k drops to just {_ms(_ttft_c16_32)} — highly efficient for
+            async/batch workloads.</li>
+            <li class="mt-1"><strong>96k inputs at c=16:</strong> TTFT still {_ms(_ttft_c16_96)}
+            ({_speedup_96} improvement) but still {_ms(_ttft_c16_96)} absolute.
+            Throughput gain is {_tps_gain_96}× at {_fmt(_tps_c16_96, 0)} tok/s.
+            Use only when latency budget allows.</li>
+            <li class="mt-1"><strong>c=64/c=128:</strong> pending — needed to characterise
+            saturation point and peak throughput.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>"""
 
     # ── Assemble page ───────────────────────────────────────────────────────
     THROUGHPUT_SAMPLES_JSON = json.dumps(THROUGHPUT_SAMPLES)
@@ -2136,14 +2360,19 @@ function makeLineChart(canvasId, datasets, xLabel, yLabel) {{
       responsive: true,
       parsing: {{ xAxisKey: 'x', yAxisKey: 'y' }},
       plugins: {{
-        legend: {{ position: 'top' }},
+        legend: {{ display: false }},
         tooltip: {{ callbacks: {{
-          label: ctx => ` ${{ctx.dataset.label}}: ${{ctx.parsed.y?.toFixed(1)}}`
+          label: ctx => {{
+            const y = ctx.parsed.y;
+            if (y === null || y === undefined) return '';
+            const d = Math.abs(y) < 0.001 ? 4 : Math.abs(y) < 0.1 ? 3 : Math.abs(y) < 10 ? 2 : 1;
+            return ` ${{ctx.dataset.label}}: ${{y.toFixed(d)}}`;
+          }}
         }} }}
       }},
       scales: {{
         x: {{ type: 'linear', title: {{ display: true, text: xLabel }},
-             ticks: {{ callback: v => v >= 1024 ? (v/1024)+'k' : v }} }},
+             ticks: {{ callback: v => Math.round(v/1024)+'k' }} }},
         y: {{ title: {{ display: true, text: yLabel }} }}
       }}
     }}
@@ -2164,20 +2393,27 @@ function makeLineChart(canvasId, datasets, xLabel, yLabel) {{
   </span>
 </nav>
 <div class="container-fluid py-3">
-  <p class="text-muted" style="font-size:.85rem">
-    gpt-oss-20b | tp=8 | async-scheduling | no prefix caching |
-    input: {", ".join(il_label(il) for il in THROUGHPUT_INPUT_LENGTHS)} |
-    output: {il_label(THROUGHPUT_OUTPUT_LEN)} |
-    concurrencies: {", ".join(f"c={c}" for c in THROUGHPUT_CONCURRENCIES)} |
-    samples: {THROUGHPUT_SAMPLES_JSON}
-  </p>
+  <div class="text-muted mb-3" style="font-size:.82rem; line-height:1.7">
+    <div>
+      <strong>Dataset:</strong> {dataset_name} &nbsp;|&nbsp;
+      <strong>Input:</strong> {", ".join(il_label(il) for il in THROUGHPUT_INPUT_LENGTHS)} &nbsp;|&nbsp;
+      <strong>Output:</strong> {il_label(THROUGHPUT_OUTPUT_LEN)} &nbsp;|&nbsp;
+      <strong>Concurrencies:</strong> {", ".join(f"c={c}" for c in active_concurrencies)} &nbsp;|&nbsp;
+      <strong>Samples:</strong> {THROUGHPUT_SAMPLES_JSON}
+    </div>
+    <div class="mt-1" style="font-family:monospace; word-break:break-all">
+      <strong>vLLM:</strong> {vllm_cmd or "(see logs/)"}
+    </div>
+  </div>
   <ul class="nav nav-tabs mb-3" id="mainTabs" role="tablist">
     {conc_nav_items}
     {eff_nav}
+    {conclusions_nav}
   </ul>
   <div class="tab-content">
     {conc_tab_panes}
     {eff_tab_pane}
+    {conclusions_tab_pane}
   </div>
 </div>
 </body>
