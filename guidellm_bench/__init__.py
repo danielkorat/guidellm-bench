@@ -25,7 +25,7 @@ from .dataset import (
 )
 from .benchmark import run_guidellm
 from .dashboard import build_dashboard_html, build_ablation_dashboard_html, build_throughput_dashboard_html
-from .agent_bench import (
+from .agent import (
     run_agent_bench, get_agent_server_config,
     MATRIX_N_CACHED, MATRIX_N_NEW, AGENT_DATASET, N_AGENT_SCENARIOS,
     AGENT_MAX_MODEL_LEN, AGENT_MAX_BATCHED,

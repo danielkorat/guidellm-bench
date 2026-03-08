@@ -272,7 +272,11 @@ def _write_resume_script(out_dir: Path, original_argv: list) -> None:
         clean_argv.append(arg)
 
     # Relative path from repo root so the script is portable
-    rel = out_dir.relative_to(Path("/root/guidellm-bench"))
+    try:
+        rel = out_dir.resolve().relative_to(Path("/root/guidellm-bench"))
+    except ValueError:
+        # Fallback: use the path as-is (e.g. running from a different location)
+        rel = out_dir
 
     bench_args = " ".join(clean_argv + [f"--resume {rel}"])
 
@@ -438,8 +442,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--agent", action="store_true",
         help="Run deep-research agent benchmark: measures TTFT vs (N_new, N_cached) matrix "
              "at 6 cached-context sizes × 4 new-token sizes, plus realistic multi-turn "
-             "agent-session simulations. Uses gpt-oss-20b tp8+async+PC. "
+             "agent-session simulations. Uses gpt-oss-20b tp8+async+PC (default). "
              "Results → ./agent_results/.",
+    )
+    p.add_argument(
+        "--agent-tp", type=int, default=None, dest="agent_tp",
+        metavar="N",
+        help="Tensor parallelism for the agent benchmark server (default: 8). "
+             "Use --agent-tp 4 when fewer GPUs are available.",
     )
     p.add_argument(
         "--skip-matrix", action="store_true", dest="skip_matrix",
@@ -625,6 +635,7 @@ def main() -> None:
             resume=args.resume,
             skip_matrix=getattr(args, "skip_matrix", False),
             skip_scenarios=getattr(args, "skip_scenarios", False),
+            agent_tp=getattr(args, "agent_tp", None),
         )
         return
 
@@ -870,24 +881,25 @@ def _run_agent(
     resume,
     skip_matrix: bool,
     skip_scenarios: bool,
+    agent_tp: Optional[int] = None,
 ) -> None:
     """Deep-research agent benchmark: TTFT matrix (131k window) + real ReAct scenarios.
 
-    Server config: gpt-oss-20b  tp=8  async-scheduling  prefix-caching
+    Server config: gpt-oss-20b  tp=8 (default, override with --agent-tp)  async+PC
     max_model_len=131072        max_num_batched_tokens=131072
     Scenarios: real ReAct loop on FRAMES benchmark (google/frames-benchmark).
     """
-    from .agent_bench import (
+    from guidellm_bench.agent import (
         run_agent_bench, get_agent_server_config,
         AGENT_MAX_MODEL_LEN, AGENT_MAX_BATCHED,
     )
-    from .server import (
+    from guidellm_bench.server import (
         start_server, wait_for_server, stop_server,
         server_is_reusable, write_server_status,
         parse_model_mem_gib,
     )
 
-    agent_cfg = get_agent_server_config()
+    agent_cfg = get_agent_server_config(tp=agent_tp)
     max_model_len = AGENT_MAX_MODEL_LEN
     max_batched   = AGENT_MAX_BATCHED
 

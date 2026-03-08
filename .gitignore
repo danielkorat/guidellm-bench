@@ -4,8 +4,13 @@ results/
 sanity_results/
 ablation_results/
 throughput_results/
+agent_results/
+verify_results/
 guidellm_results/
 guidellm_sanity_results/
+# Log and text files generated inside run directories
+agent_results/**/*.log
+agent_results/**/*.txt
 bench_full.log
 bench_full.pid
 /tmp/

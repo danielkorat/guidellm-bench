@@ -21,7 +21,16 @@ Benchmarking tool (`bench.py` entry point + `guidellm_bench/` package) that runs
 │   ├── server.py                 # vLLM server lifecycle: start, health-check, stop
 │   ├── dataset.py                # AIME 2024 + generic HF dataset download; long-context slicing
 │   ├── benchmark.py              # run_guidellm() (+ lc_mode) and copy_results()
-│   ├── agent_bench.py            # deep-research agent TTFT matrix + scenario simulation
+│   ├── agent/                    # deep-research agent subpackage (CONCURRENCY=1 demo)
+│   │   ├── __init__.py           #   re-exports all public API
+│   │   ├── constants.py          #   AGENT_MAX_MODEL_LEN, AGENT_MAX_BATCHED, CONCURRENCY, MATRIX_*, dataclasses
+│   │   ├── debug.py              #   file-backed debug logger
+│   │   ├── helpers.py            #   make_session, _tokenize/_detokenize, _warm_cache, _measure_ttft
+│   │   ├── corpus.py             #   Corpus class, _prepare_frames_corpus, _find_arxiv_fallback
+│   │   ├── matrix.py             #   measure_cell, run_ttft_matrix, _save_matrix_checkpoint
+│   │   ├── scenarios.py          #   ReAct loop, run_research_session, run_agent_scenarios_frames
+│   │   └── run.py                #   run_agent_bench, get_agent_server_config
+│   ├── agent_bench.py            # backward-compat shim → re-exports from guidellm_bench.agent
 │   └── dashboard.py              # build_dashboard_html() and write_serve_script()
 ├── verify_pc.py                  # Verify PC artifact: confirms LC dataset cross-run KV-cache seeding
 ├── results/                      # Created at runtime (full runs) — gitignored
@@ -300,7 +309,8 @@ out_dir = Path(results_dir) / ts
 | `server.py` | vLLM server lifecycle: start, health-check, stop |
 | `dataset.py` | AIME 2024 dataset download and caching |
 | `benchmark.py` | `run_guidellm()` and `copy_results()` |
-| `agent_bench.py` | TTFT matrix measurement, agent scenario simulation, corpus/tokenizer helpers |
+| `agent/` | deep-research agent subpackage (constants, debug, helpers, corpus, matrix, scenarios, run) |
+| `agent_bench.py` | backward-compat shim — re-exports everything from `guidellm_bench.agent` |
 | `dashboard.py` | `build_dashboard_html()` and `write_serve_script()` |
 
 Do **not** add new logic directly to `bench.py`.
@@ -648,10 +658,12 @@ Cached to `out_dir/datasets/{safe_name}_{split}_v1.jsonl`. Output: `{prompt, out
 - `_parse_json_action(raw)` — extracts first `{...}` JSON object; falls back to implicit search
 
 #### Implementation
-- `guidellm_bench/agent_bench.py` — all logic
+- `guidellm_bench/agent/` — all logic (constants / debug / helpers / corpus / matrix / scenarios / run)
 - `_run_agent()` in `bench.py` — server lifecycle + dispatch
-- Server: `tp=8, async_scheduling=True, prefix_caching=True`
-- `AGENT_MAX_MODEL_LEN = 131_072`, `AGENT_MAX_BATCHED = 131_072`
+- Server: `tp=8, async_scheduling=False, prefix_caching=True` (async not needed at `CONCURRENCY=1`)
+- `AGENT_MAX_MODEL_LEN = 131_072`, `AGENT_MAX_BATCHED = 8_192`, `CONCURRENCY = 1`
+- `AGENT_MAX_BATCHED=8_192` keeps vLLM's warm-up dummy kernel within Intel XPU 256KB PTSS limit;
+  131k-token prompts are served via chunked prefill (16 × 8k passes) — no kernel size issue
 - Dataset: auto-builds FRAMES corpus via `_prepare_frames_corpus(out_dir)` (downloads once, cached per run dir)
 - Results → `./agent_results/YYYYMMDD_HHMM/agent_bench_results.json`
 - Supports `--resume`, `--skip-matrix`, `--skip-scenarios`
@@ -754,3 +766,4 @@ Mistakes that happened once and must not repeat:
 | 43 | `_log_has_xpu_hang` declared a hang whenever `OperatorEntry.cpp:208` appeared in the log past 120s — but this warning is emitted by the main vLLM process within the first ~5s of **every** normal startup. gpt-oss-20b tp=8 takes 90–150s to fully load, so it was always killed as a false positive. Confirmed by running OPT-125m directly inside the container (same single OperatorEntry, then successful startup ~37s later). | Real hang = OperatorEntry present **AND** no `EngineCore`/`Worker_TP` lines (workers never registered). Raised `_HANG_DETECT_AFTER_S` 120 → 300s. See updated Rule 18 and Lesson 40. |
 | 44 | `build_throughput_dashboard_html` had two bugs that both produced empty plots: (1) `chart_js_lines` appended to `conc_tab_panes` without `<script>` tags — browser treated them as text nodes. (2) `makeLineChart` function defined in a `<script>` at the **bottom** of the page, after all the tab pane `<script>` blocks that call it — browser executes inline scripts as it parses, so every call threw `makeLineChart is not defined`. | (1) Wrap chart JS in `<script>(function(){...})();</script>` inside the f-string. (2) Define `makeLineChart` in `<head>`, before any body content. **Verification rule**: `h = open(...).read(); assert h.find('function makeLineChart') < h.find('makeLineChart("thr-')` — function must appear before its first call. Also check `grep -c "makeLineChart" dashboard.html` > 0. Only open in browser after both pass. |
 | 45 | `b['metrics']` aggregates (TTFT, ITL, latency, tpot) were all zero for thinking models. Root cause: `GenerativeMetrics.compile()` in guidellm's `metrics.py` used `lambda req: req.time_to_first_token_ms or 0.0` — the `or 0.0` coerces `None` to `0.0` **before** `from_values_function` sees it. `from_values_function` already skips `None` via `continue`, but never gets the chance because `None` is gone. | Fixed in the installed fork at `/usr/local/lib/python3.12/dist-packages/guidellm/benchmark/schemas/generative/metrics.py`: (1) `request_latency or 0.0` → `req.request_latency`; (2) `time_to_first_token_ms or 0.0` → `req.time_to_first_token_ms`; (3) `time_per_output_token_ms` tuple: add `if req.time_per_output_token_ms is not None else None` guard; (4) `inter_token_latency_ms` tuple: add `if req.inter_token_latency_ms is not None else None` guard. **This fix will be lost if guidellm is reinstalled** — it must be committed to the `fix/thinking-model-ttft` branch of the fork and re-installed. Applied via `/tmp/fix_metrics.py` on 2026-03-08. |
+| 46 | Agent benchmark crashed with `ZE_RESULT_ERROR_MODULE_BUILD_FAILURE` when `AGENT_MAX_BATCHED=131_072` (equal to `max_model_len`). vLLM's warm-up dummy run builds a Triton kernel matching `max_num_batched_tokens`; at 131k tokens the kernel exceeds Intel XPU PTSS 256KB limit. | Fix: `AGENT_MAX_BATCHED = 8_192` (default). vLLM serves 131k-token prompts safely via chunked prefill (16 passes × 8k tokens each). Never set `max_num_batched_tokens = max_model_len` on Intel XPU when `max_model_len > ~32k`. The throughput study uses the same pattern: `THROUGHPUT_MAX_MODEL_LEN=131_072`, `THROUGHPUT_MAX_NUM_BATCHED_TOKENS=8_192`. |
