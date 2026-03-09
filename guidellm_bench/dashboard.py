@@ -2659,7 +2659,7 @@ def build_agent_dashboard_html(
     for i, sc in enumerate(scenarios):
         iters = sc.get("iters", [])
         ttft_vals = [it.get("ttft_ms") for it in iters if it.get("ttft_ms") is not None]
-        ctx_vals  = [round(it.get("context_tokens", 0) / 1024, 1) for it in iters]
+        ctx_vals  = [round(it.get("n_total_tokens", 0) / 1024, 1) for it in iters]
         if ttft_vals:
             col = SCEN_COLORS[i % len(SCEN_COLORS)]
             label = sc.get("name", f"Scenario {i+1}")
@@ -2835,7 +2835,7 @@ def build_agent_dashboard_html(
             rows = "".join(
                 f'<tr><td>{i+1}</td><td>{it.get("action","?")}</td>'
                 f'<td>{it.get("ttft_ms",0):.0f}</td>'
-                f'<td>{it.get("context_tokens",0)//1024}k</td></tr>'
+                f'<td>{it.get("n_total_tokens",0)//1024}k</td></tr>'
                 for i, it in enumerate(iters)
             )
             scen_cards.append(f"""
