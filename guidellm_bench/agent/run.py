@@ -67,6 +67,7 @@ def run_agent_bench(
     skip_scenarios: bool = False,
     skip_matrix: bool = False,
     resume: bool = False,
+    tp: Optional[int] = None,
 ) -> AgentBenchResult:
     """Run the full agent benchmark and save results to *out_dir*.
 
@@ -101,13 +102,15 @@ def run_agent_bench(
         from datetime import timezone, timedelta
         ts = datetime.now(timezone(timedelta(hours=2))).strftime("%Y-%m-%d %H:%M")
 
+    _tp = tp if tp is not None else AGENT_TP
+
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "datasets").mkdir(exist_ok=True)
 
     _setup_debug_log(out_dir / "agent_debug.log")
     _DBG_INFO(
         f"[run_agent_bench] START  ts={ts}  model={AGENT_MODEL}  "
-        f"tp={AGENT_TP}  max_model_len={AGENT_MAX_MODEL_LEN}  PC=True  "
+        f"tp={_tp}  max_model_len={AGENT_MAX_MODEL_LEN}  PC=True  "
         f"n_samples={n_samples}  n_warmups={n_warmups}  "
         f"skip_matrix={skip_matrix}  skip_scenarios={skip_scenarios}  "
         f"resume={resume}  out_dir={out_dir}"
@@ -115,7 +118,7 @@ def run_agent_bench(
 
     print(f"\n[agent_bench] Starting — {ts}", flush=True)
     print(
-        f"  Model: {AGENT_MODEL}  tp={AGENT_TP}  "
+        f"  Model: {AGENT_MODEL}  tp={_tp}  "
         f"max_model_len={AGENT_MAX_MODEL_LEN:,}  PC=True  concurrency=1",
         flush=True,
     )
@@ -149,7 +152,7 @@ def run_agent_bench(
     result = AgentBenchResult(
         run_timestamp=ts,
         model=AGENT_MODEL,
-        tp=AGENT_TP,
+        tp=_tp,
         prefix_caching=True,
     )
 

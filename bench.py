@@ -934,6 +934,7 @@ def _run_agent(
         skip_matrix=skip_matrix,
         skip_scenarios=skip_scenarios,
         resume=(resume is not None),
+        tp=agent_cfg.tp,
     )
 
     # Build dashboard from completed results
